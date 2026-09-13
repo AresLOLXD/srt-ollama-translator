@@ -21,8 +21,10 @@ class FakeClient:
     def __init__(self, responses: list[str]):
         self.responses = responses
         self.calls = 0
+        self.prompts = []
 
     async def chat(self, model: str, prompt: str) -> str:
+        self.prompts.append(prompt)
         response = self.responses[min(self.calls, len(self.responses) - 1)]
         self.calls += 1
         return response
@@ -138,3 +140,37 @@ async def test_translate_srt_file_handles_latin1_encoded_input(tmp_path):
     assert failed_blocks == 0
     output_text = output_path.read_text(encoding="utf-8")
     assert "Good afternoon, sir." in output_text
+
+
+@pytest.mark.asyncio
+async def test_translate_block_with_filename_passes_to_prompt():
+    client = FakeClient(["[1] Hola\n[2] Mundo"])
+    block = make_block(2)
+    await translate_block(client, "llama3.1", block, "en", filename="eng.Signs__Songs.eng.srt")
+    assert len(client.prompts) == 1
+    assert "eng.Signs__Songs.eng.srt" in client.prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_translate_srt_file_with_filename_passes_to_client(tmp_path):
+    input_path = tmp_path / "input.srt"
+    input_path.write_text(
+        "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n"
+        "2\n00:00:01,000 --> 00:00:02,000\nWorld\n",
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "output.srt"
+    client = FakeClient(["[1] Hola\n[2] Mundo"])
+
+    await translate_srt_file(
+        client,
+        "llama3.1",
+        "en",
+        str(input_path),
+        str(output_path),
+        filename="eng.DialogueTest.srt",
+        block_size=25,
+    )
+
+    assert len(client.prompts) == 1
+    assert "eng.DialogueTest.srt" in client.prompts[0]

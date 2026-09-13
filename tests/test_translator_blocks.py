@@ -54,3 +54,21 @@ def test_parse_translated_response_ignores_malformed_lines():
 
 def test_parse_translated_response_empty_string_returns_empty_dict():
     assert parse_translated_response("") == {}
+
+
+def test_build_prompt_with_filename_includes_filename_in_prompt():
+    block = SubtitleBlock(subs=make_subs(2))
+    prompt = build_prompt(block, source_lang="en", filename="eng.Signs__Songs.eng.srt")
+    assert "eng.Signs__Songs.eng.srt" in prompt
+
+
+def test_build_prompt_without_filename_matches_original_behavior():
+    block = SubtitleBlock(subs=make_subs(2))
+    prompt = build_prompt(block, source_lang="en", filename=None)
+    # Should not mention "archivo" or "filename" when filename=None
+    assert "archivo" not in prompt.lower()
+    assert "filename" not in prompt.lower()
+    # But should still contain the core prompt structure
+    assert "[1] Line 1" in prompt
+    assert "[2] Line 2" in prompt
+    assert "en" in prompt

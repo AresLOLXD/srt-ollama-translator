@@ -35,6 +35,7 @@ async def process_job(db_path: str, storage_dir: str, ollama_client, job: dict) 
                 input_path,
                 output_path,
                 on_block_translated=on_progress,
+                filename=job_file["filename"],
             )
 
             file_status = "completed_with_errors" if failed_blocks > 0 else "completed"

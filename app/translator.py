@@ -39,11 +39,13 @@ def split_into_blocks(subs: list[srt.Subtitle], block_size: int = 25) -> list[Su
     ]
 
 
-def build_prompt(block: SubtitleBlock, source_lang: str) -> str:
+def build_prompt(block: SubtitleBlock, source_lang: str, filename: str | None = None) -> str:
     source_desc = "el idioma detectado automáticamente" if source_lang == "auto" else source_lang
     lines = "\n".join(f"[{sub.index}] {sub.content}" for sub in block.subs)
+    filename_line = f"Nombre del archivo: {filename}. " if filename else ""
     return (
         "Traduce al español los siguientes subtítulos de una película o serie. "
+        f"{filename_line}"
         f"El idioma de origen es {source_desc}. "
         "Devuelve EXACTAMENTE una línea por cada subtítulo recibido, en el formato "
         '"[N] texto traducido", preservando el número N tal cual. '
@@ -62,13 +64,13 @@ def parse_translated_response(response: str) -> dict[int, str]:
 
 
 async def translate_block(
-    client, model: str, block: SubtitleBlock, source_lang: str, max_retries: int = 3
+    client, model: str, block: SubtitleBlock, source_lang: str, max_retries: int = 3, filename: str | None = None
 ) -> dict[int, str]:
     expected_indices = {sub.index for sub in block.subs}
     translations: dict[int, str] = {}
 
     for _attempt in range(max_retries):
-        prompt = build_prompt(block, source_lang)
+        prompt = build_prompt(block, source_lang, filename=filename)
         response = await client.chat(model, prompt)
         translations.update(parse_translated_response(response))
         if expected_indices.issubset(translations.keys()):
@@ -85,6 +87,7 @@ async def translate_srt_file(
     output_path: str,
     on_block_translated: Callable[[int, int], None] | None = None,
     block_size: int = 25,
+    filename: str | None = None,
 ) -> tuple[int, int]:
     subs = list(srt.parse(read_srt_text(input_path)))
 
@@ -93,7 +96,7 @@ async def translate_srt_file(
     failed_blocks = 0
 
     for position, block in enumerate(blocks, start=1):
-        translations = await translate_block(client, model, block, source_lang)
+        translations = await translate_block(client, model, block, source_lang, filename=filename)
         expected_indices = {sub.index for sub in block.subs}
         if not expected_indices.issubset(translations.keys()):
             failed_blocks += 1
