@@ -38,3 +38,19 @@ def parse_translated_response(response: str) -> dict[int, str]:
         if match:
             result[int(match.group(1))] = match.group(2)
     return result
+
+
+async def translate_block(
+    client, model: str, block: SubtitleBlock, source_lang: str, max_retries: int = 3
+) -> dict[int, str]:
+    expected_indices = {sub.index for sub in block.subs}
+    translations: dict[int, str] = {}
+
+    for _attempt in range(max_retries):
+        prompt = build_prompt(block, source_lang)
+        response = await client.chat(model, prompt)
+        translations.update(parse_translated_response(response))
+        if expected_indices.issubset(translations.keys()):
+            break
+
+    return {index: text for index, text in translations.items() if index in expected_indices}
