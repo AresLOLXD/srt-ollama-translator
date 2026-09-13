@@ -88,3 +88,38 @@ async def test_process_job_marks_failed_on_unexpected_error(tmp_path, db_path):
     updated_job = db.get_job(db_path, "job-1")
     assert updated_job["status"] == "failed"
     assert updated_job["error_message"] is not None
+
+
+@pytest.mark.asyncio
+async def test_process_job_catches_initial_status_update_failure(tmp_path, db_path, monkeypatch):
+    """Verify that exceptions during initial status update (before the try block) are caught."""
+    storage_dir = str(tmp_path / "storage")
+    job_dir = os.path.join(storage_dir, "job-1", "input")
+    os.makedirs(job_dir)
+    _write_srt(os.path.join(job_dir, "episode1.srt"))
+
+    db.create_job(db_path, "job-1", "movie.zip", "llama3.1", "auto", total_files=1)
+    db.create_job_file(db_path, "file-1", "job-1", "episode1.srt", total_blocks=1)
+
+    job = db.get_job(db_path, "job-1")
+
+    # Monkeypatch: make the first call to update_job_status raise an exception
+    original_update = db.update_job_status
+    call_count = [0]
+
+    def failing_update_job_status(db_path, job_id, status, error_message=None):
+        call_count[0] += 1
+        if call_count[0] == 1 and status == "processing":
+            raise RuntimeError("Database connection lost")
+        return original_update(db_path, job_id, status, error_message)
+
+    monkeypatch.setattr(db, "update_job_status", failing_update_job_status)
+
+    # Call process_job - it should NOT raise an exception, even though
+    # the initial status update failed
+    await process_job(db_path, storage_dir, FakeOllamaClient(), job)
+
+    # The job should be marked as failed with the error message
+    updated_job = db.get_job(db_path, "job-1")
+    assert updated_job["status"] == "failed"
+    assert "Database connection lost" in updated_job["error_message"]

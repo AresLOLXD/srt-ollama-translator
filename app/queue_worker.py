@@ -6,14 +6,14 @@ from app.translator import translate_srt_file
 
 
 async def process_job(db_path: str, storage_dir: str, ollama_client, job: dict) -> None:
-    job_id = job["id"]
-    db.update_job_status(db_path, job_id, "processing")
-    job_dir = os.path.join(storage_dir, job_id)
-    input_dir = os.path.join(job_dir, "input")
-    output_dir = os.path.join(job_dir, "output")
-    os.makedirs(output_dir, exist_ok=True)
-
     try:
+        job_id = job["id"]
+        db.update_job_status(db_path, job_id, "processing")
+        job_dir = os.path.join(storage_dir, job_id)
+        input_dir = os.path.join(job_dir, "input")
+        output_dir = os.path.join(job_dir, "output")
+        os.makedirs(output_dir, exist_ok=True)
+
         any_failed = False
         for job_file in db.get_job_files(db_path, job_id):
             db.update_job_file_status(db_path, job_file["id"], "processing")
@@ -46,6 +46,7 @@ async def process_job(db_path: str, storage_dir: str, ollama_client, job: dict) 
             db_path, job_id, "completed_with_errors" if any_failed else "completed"
         )
     except Exception as exc:  # noqa: BLE001 - job failures must never crash the worker loop
+        job_id = job["id"]
         db.update_job_status(db_path, job_id, "failed", error_message=str(exc))
 
 
