@@ -1,5 +1,6 @@
 import re
 from dataclasses import dataclass
+from typing import Callable
 
 import srt
 
@@ -54,3 +55,38 @@ async def translate_block(
             break
 
     return {index: text for index, text in translations.items() if index in expected_indices}
+
+
+async def translate_srt_file(
+    client,
+    model: str,
+    source_lang: str,
+    input_path: str,
+    output_path: str,
+    on_block_translated: Callable[[int, int], None] | None = None,
+    block_size: int = 25,
+) -> tuple[int, int]:
+    with open(input_path, encoding="utf-8") as f:
+        subs = list(srt.parse(f.read()))
+
+    blocks = split_into_blocks(subs, block_size=block_size)
+    translated_by_index: dict[int, str] = {}
+    failed_blocks = 0
+
+    for position, block in enumerate(blocks, start=1):
+        translations = await translate_block(client, model, block, source_lang)
+        expected_indices = {sub.index for sub in block.subs}
+        if not expected_indices.issubset(translations.keys()):
+            failed_blocks += 1
+        translated_by_index.update(translations)
+        if on_block_translated:
+            on_block_translated(position, len(blocks))
+
+    for sub in subs:
+        if sub.index in translated_by_index:
+            sub.content = translated_by_index[sub.index]
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(srt.compose(subs))
+
+    return len(blocks), failed_blocks
