@@ -60,7 +60,22 @@ def get_router(db_path: str, storage_dir: str) -> APIRouter:
 
     @router.get("/api/jobs")
     def list_jobs():
-        return {"jobs": db.list_jobs(db_path)}
+        jobs = db.list_jobs(db_path)
+        for job in jobs:
+            current_file = next(
+                (f for f in db.get_job_files(db_path, job["id"]) if f["status"] == "processing"),
+                None,
+            )
+            job["current_file"] = (
+                {
+                    "filename": current_file["filename"],
+                    "translated_blocks": current_file["translated_blocks"],
+                    "total_blocks": current_file["total_blocks"],
+                }
+                if current_file
+                else None
+            )
+        return {"jobs": jobs}
 
     @router.get("/api/jobs/{job_id}")
     def get_job(job_id: str):

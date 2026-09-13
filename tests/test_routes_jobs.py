@@ -188,6 +188,54 @@ def test_download_returns_404_when_output_zip_missing_on_disk(client):
     assert response.status_code == 404
 
 
+def test_list_jobs_includes_current_file_progress_for_processing_file(client):
+    test_client, db_path, _storage_dir = client
+    zip_bytes = _make_zip_bytes(
+        {
+            "episode1.srt": "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n",
+            "episode2.srt": "1\n00:00:00,000 --> 00:00:01,000\nWorld\n\n",
+        }
+    )
+    create_response = test_client.post(
+        "/api/jobs",
+        files={"file": ("movie.zip", zip_bytes, "application/zip")},
+        data={"model": "llama3.1", "source_lang": "en"},
+    )
+    job_id = create_response.json()["id"]
+
+    job_files = db.get_job_files(db_path, job_id)
+    processing_file = next(f for f in job_files if f["filename"] == "episode2.srt")
+    db.update_job_file_status(db_path, processing_file["id"], "processing")
+    db.update_job_file_progress(db_path, processing_file["id"], translated_blocks=1, failed_blocks=0)
+
+    response = test_client.get("/api/jobs")
+    job = next(j for j in response.json()["jobs"] if j["id"] == job_id)
+
+    assert job["current_file"] == {
+        "filename": "episode2.srt",
+        "translated_blocks": 1,
+        "total_blocks": 1,
+    }
+
+
+def test_list_jobs_current_file_is_null_when_no_file_processing(client):
+    test_client, _db_path, _storage_dir = client
+    zip_bytes = _make_zip_bytes(
+        {"episode1.srt": "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n"}
+    )
+    create_response = test_client.post(
+        "/api/jobs",
+        files={"file": ("movie.zip", zip_bytes, "application/zip")},
+        data={"model": "llama3.1", "source_lang": "en"},
+    )
+    job_id = create_response.json()["id"]
+
+    response = test_client.get("/api/jobs")
+    job = next(j for j in response.json()["jobs"] if j["id"] == job_id)
+
+    assert job["current_file"] is None
+
+
 def test_delete_job_removes_record_and_files(client):
     test_client, db_path, storage_dir = client
     zip_bytes = _make_zip_bytes(
