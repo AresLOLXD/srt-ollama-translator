@@ -23,16 +23,19 @@ docker compose up --build
 
 Luego abre `http://localhost:8000`.
 
-## Configurar la URL de Ollama
+## Configurar puerto y URL de Ollama
 
-Por defecto la app espera a Ollama en `http://host.containers.internal:11434`
-(la forma estándar de referirse al host desde un contenedor en Podman/Docker
-Desktop). Si tu configuración es distinta:
+Copia `.env.example` a `.env` y ajusta las variables antes de ejecutar:
 
-- Cambia la variable de entorno `OLLAMA_BASE_URL` en `docker-compose.yml`, o
-- Ajusta la URL directamente desde la sección "Configuración" de la interfaz
-  web una vez la app está corriendo (se guarda en la base de datos y persiste
-  entre reinicios).
+```bash
+cp .env.example .env
+# Edita .env para cambiar HOST_PORT y/o OLLAMA_BASE_URL según sea necesario
+```
+
+- `HOST_PORT`: Puerto en el host donde se expone la app (por defecto `8000`).
+- `OLLAMA_BASE_URL`: URL base de Ollama (por defecto `http://host.containers.internal:11434`).
+
+Alternativamente, puedes editar `docker-compose.yml` directamente o ajustar la URL desde la sección "Configuración" de la interfaz web una vez la app está corriendo (se guarda en la base de datos y persiste entre reinicios).
 
 ## Desarrollo local (sin contenedor)
 
