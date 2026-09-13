@@ -5,9 +5,16 @@ const modelSelect = document.getElementById("model-select");
 const ollamaUrlInput = document.getElementById("ollama-url-input");
 
 async function loadConfig() {
-  const response = await fetch("/api/config");
-  const data = await response.json();
-  ollamaUrlInput.value = data.ollama_base_url;
+  try {
+    const response = await fetch("/api/config");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    ollamaUrlInput.value = data.ollama_base_url;
+  } catch (err) {
+    ollamaUrlInput.value = "";
+    ollamaUrlInput.placeholder = "No se pudo cargar la configuración";
+    if (configStatus) configStatus.textContent = "Error: No se pudo cargar la configuración";
+  }
 }
 
 async function saveConfig() {
@@ -89,11 +96,17 @@ function renderJobRow(job) {
 }
 
 async function refreshJobs() {
-  const response = await fetch("/api/jobs");
-  const data = await response.json();
-  jobsTableBody.innerHTML = "";
-  for (const job of data.jobs) {
-    jobsTableBody.appendChild(renderJobRow(job));
+  try {
+    const response = await fetch("/api/jobs");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (!Array.isArray(data.jobs)) throw new Error("Invalid response format");
+    jobsTableBody.innerHTML = "";
+    for (const job of data.jobs) {
+      jobsTableBody.appendChild(renderJobRow(job));
+    }
+  } catch (err) {
+    // Silent fail: do not update table, let polling retry in next cycle
   }
 }
 
