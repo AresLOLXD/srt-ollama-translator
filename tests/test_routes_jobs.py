@@ -252,3 +252,23 @@ def test_delete_job_removes_record_and_files(client):
     assert response.status_code == 200
     assert db.get_job(db_path, job_id) is None
     assert not os.path.exists(os.path.join(storage_dir, job_id))
+
+
+def test_delete_job_returns_409_when_processing(client):
+    test_client, db_path, storage_dir = client
+    zip_bytes = _make_zip_bytes(
+        {"episode1.srt": "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n"}
+    )
+    create_response = test_client.post(
+        "/api/jobs",
+        files={"file": ("movie.zip", zip_bytes, "application/zip")},
+        data={"model": "llama3.1", "source_lang": "en"},
+    )
+    job_id = create_response.json()["id"]
+
+    db.update_job_status(db_path, job_id, "processing")
+
+    response = test_client.delete(f"/api/jobs/{job_id}")
+    assert response.status_code == 409
+    assert db.get_job(db_path, job_id) is not None
+    assert os.path.exists(os.path.join(storage_dir, job_id))

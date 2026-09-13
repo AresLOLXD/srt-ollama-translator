@@ -103,6 +103,32 @@ def test_reset_stale_processing_jobs_resets_processing_but_not_completed(db_path
     assert job2["status"] == "completed"
 
 
+def test_reset_stale_processing_jobs_resets_job_files_status(db_path):
+    db.create_job(db_path, "job-1", "a.zip", "llama3.1", "auto", total_files=2)
+    db.create_job_file(db_path, "file-1", "job-1", "episode1.srt", total_blocks=5)
+    db.create_job_file(db_path, "file-2", "job-1", "episode2.srt", total_blocks=3)
+
+    db.update_job_file_status(db_path, "file-1", "processing")
+    db.update_job_file_progress(db_path, "file-1", translated_blocks=2, failed_blocks=1)
+
+    db.update_job_file_status(db_path, "file-2", "completed")
+    db.update_job_file_progress(db_path, "file-2", translated_blocks=3, failed_blocks=0)
+
+    db.reset_stale_processing_jobs(db_path)
+
+    files = db.get_job_files(db_path, "job-1")
+    file1 = next(f for f in files if f["id"] == "file-1")
+    file2 = next(f for f in files if f["id"] == "file-2")
+
+    assert file1["status"] == "pending"
+    assert file1["translated_blocks"] == 0
+    assert file1["failed_blocks"] == 0
+
+    assert file2["status"] == "completed"
+    assert file2["translated_blocks"] == 3
+    assert file2["failed_blocks"] == 0
+
+
 def test_config_roundtrip_and_default(db_path):
     assert db.get_config(db_path, "ollama_base_url", "http://default:11434") == "http://default:11434"
     db.set_config(db_path, "ollama_base_url", "http://custom:11434")

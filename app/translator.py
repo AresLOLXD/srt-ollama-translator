@@ -64,7 +64,12 @@ def parse_translated_response(response: str) -> dict[int, str]:
 
 
 async def translate_block(
-    client, model: str, block: SubtitleBlock, source_lang: str, max_retries: int = 3, filename: str | None = None
+    client,
+    model: str,
+    block: SubtitleBlock,
+    source_lang: str,
+    max_retries: int = 3,
+    filename: str | None = None,
 ) -> dict[int, str]:
     expected_indices = {sub.index for sub in block.subs}
     translations: dict[int, str] = {}

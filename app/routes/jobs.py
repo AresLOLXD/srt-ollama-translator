@@ -106,6 +106,10 @@ def get_router(db_path: str, storage_dir: str) -> APIRouter:
         job = db.get_job(db_path, job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Job no encontrado")
+        if job["status"] == "processing":
+            raise HTTPException(
+                status_code=409, detail="No se puede borrar un job en procesamiento"
+            )
         db.delete_job(db_path, job_id)
         job_dir = os.path.join(storage_dir, job_id)
         if os.path.isdir(job_dir):
