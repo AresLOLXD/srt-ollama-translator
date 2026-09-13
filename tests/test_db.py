@@ -85,6 +85,24 @@ def test_delete_job_removes_job_and_its_files(db_path):
     assert db.get_job_files(db_path, "job-1") == []
 
 
+def test_reset_stale_processing_jobs_resets_processing_but_not_completed(db_path):
+    db.create_job(db_path, "job-1", "a.zip", "llama3.1", "auto", total_files=2)
+    db.update_job_status(db_path, "job-1", "processing")
+    db.increment_job_processed_files(db_path, "job-1")
+
+    db.create_job(db_path, "job-2", "b.zip", "llama3.1", "auto", total_files=1)
+    db.update_job_status(db_path, "job-2", "completed")
+
+    db.reset_stale_processing_jobs(db_path)
+
+    job1 = db.get_job(db_path, "job-1")
+    assert job1["status"] == "pending"
+    assert job1["processed_files"] == 0
+
+    job2 = db.get_job(db_path, "job-2")
+    assert job2["status"] == "completed"
+
+
 def test_config_roundtrip_and_default(db_path):
     assert db.get_config(db_path, "ollama_base_url", "http://default:11434") == "http://default:11434"
     db.set_config(db_path, "ollama_base_url", "http://custom:11434")

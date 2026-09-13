@@ -1,8 +1,12 @@
 import asyncio
+import logging
 import os
 
 from app import db, zip_utils
+from app.config import resolve_ollama_url
 from app.translator import translate_srt_file
+
+logger = logging.getLogger(__name__)
 
 
 async def process_job(db_path: str, storage_dir: str, ollama_client, job: dict) -> None:
@@ -47,6 +51,7 @@ async def process_job(db_path: str, storage_dir: str, ollama_client, job: dict) 
         )
     except Exception as exc:  # noqa: BLE001 - job failures must never crash the worker loop
         job_id = job["id"]
+        logger.exception("Job %s failed", job_id)
         db.update_job_status(db_path, job_id, "failed", error_message=str(exc))
 
 
@@ -54,12 +59,14 @@ async def worker_loop(
     db_path: str, storage_dir: str, ollama_client_factory, poll_interval: float = 2.0
 ) -> None:
     while True:
-        job = db.get_next_pending_job(db_path)
-        if job is None:
+        try:
+            job = db.get_next_pending_job(db_path)
+            if job is None:
+                await asyncio.sleep(poll_interval)
+                continue
+            base_url = resolve_ollama_url(db_path)
+            ollama_client = ollama_client_factory(base_url)
+            await process_job(db_path, storage_dir, ollama_client, job)
+        except Exception:  # noqa: BLE001 - the worker loop must never die silently
+            logger.exception("Unexpected error in worker loop")
             await asyncio.sleep(poll_interval)
-            continue
-        base_url = db.get_config(
-            db_path, "ollama_base_url", "http://host.containers.internal:11434"
-        )
-        ollama_client = ollama_client_factory(base_url)
-        await process_job(db_path, storage_dir, ollama_client, job)

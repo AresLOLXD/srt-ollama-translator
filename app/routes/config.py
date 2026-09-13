@@ -1,11 +1,8 @@
-import os
-
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app import db
-
-DEFAULT_OLLAMA_URL = "http://host.containers.internal:11434"
+from app.config import resolve_ollama_url
 
 
 class ConfigUpdate(BaseModel):
@@ -17,8 +14,7 @@ def get_router(db_path: str) -> APIRouter:
 
     @router.get("/api/config")
     def get_config():
-        default = os.environ.get("OLLAMA_BASE_URL", DEFAULT_OLLAMA_URL)
-        return {"ollama_base_url": db.get_config(db_path, "ollama_base_url", default)}
+        return {"ollama_base_url": resolve_ollama_url(db_path)}
 
     @router.post("/api/config")
     def update_config(payload: ConfigUpdate):

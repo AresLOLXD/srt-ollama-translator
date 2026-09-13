@@ -147,6 +147,47 @@ def test_download_after_completion_returns_zip(client):
     assert response.headers["content-type"] in ("application/zip", "application/x-zip-compressed")
 
 
+def test_create_job_rejects_malformed_srt_and_leaves_no_trace(client):
+    test_client, db_path, storage_dir = client
+    zip_bytes = _make_zip_bytes(
+        {
+            "episode1.srt": "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n",
+            "episode2.srt": "this is not a valid srt file at all\njust plain text\n",
+        }
+    )
+
+    response = test_client.post(
+        "/api/jobs",
+        files={"file": ("movie.zip", zip_bytes, "application/zip")},
+        data={"model": "llama3.1", "source_lang": "en"},
+    )
+
+    assert response.status_code == 400
+    assert "episode2.srt" in response.json()["detail"]
+    assert db.list_jobs(db_path) == []
+    if os.path.isdir(storage_dir):
+        assert os.listdir(storage_dir) == []
+
+
+def test_download_returns_404_when_output_zip_missing_on_disk(client):
+    test_client, db_path, storage_dir = client
+    zip_bytes = _make_zip_bytes(
+        {"episode1.srt": "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n"}
+    )
+    create_response = test_client.post(
+        "/api/jobs",
+        files={"file": ("movie.zip", zip_bytes, "application/zip")},
+        data={"model": "llama3.1", "source_lang": "en"},
+    )
+    job_id = create_response.json()["id"]
+
+    db.update_job_status(db_path, job_id, "completed")
+    # No output.zip is written to disk, simulating storage/DB divergence.
+
+    response = test_client.get(f"/api/jobs/{job_id}/download")
+    assert response.status_code == 404
+
+
 def test_delete_job_removes_record_and_files(client):
     test_client, db_path, storage_dir = client
     zip_bytes = _make_zip_bytes(

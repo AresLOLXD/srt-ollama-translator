@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -12,6 +13,8 @@ from app.routes import config as config_routes
 from app.routes import jobs as jobs_routes
 from app.routes import models as models_routes
 
+logging.basicConfig(level=logging.INFO)
+
 DB_PATH = os.environ.get("DB_PATH", "/data/db/jobs.db")
 STORAGE_DIR = os.environ.get("STORAGE_DIR", "/data/storage")
 
@@ -21,6 +24,7 @@ async def lifespan(app: FastAPI):
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     os.makedirs(STORAGE_DIR, exist_ok=True)
     db.init_db(DB_PATH)
+    db.reset_stale_processing_jobs(DB_PATH)
 
     worker_task = asyncio.create_task(
         worker_loop(DB_PATH, STORAGE_DIR, ollama_client_factory=OllamaClient)

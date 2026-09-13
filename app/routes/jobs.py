@@ -7,7 +7,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from app import db, zip_utils
-from app.translator import split_into_blocks
+from app.translator import read_srt_text, split_into_blocks
 
 
 def get_router(db_path: str, storage_dir: str) -> APIRouter:
@@ -38,14 +38,23 @@ def get_router(db_path: str, storage_dir: str) -> APIRouter:
             shutil.rmtree(job_dir)
             raise HTTPException(status_code=400, detail="El zip no contiene archivos .srt")
 
+        file_block_counts = {}
+        for filename in srt_files:
+            try:
+                subs = list(srt_lib.parse(read_srt_text(os.path.join(input_dir, filename))))
+            except srt_lib.SRTParseError as exc:
+                shutil.rmtree(job_dir)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Archivo .srt inválido: {filename} ({exc})",
+                ) from exc
+            file_block_counts[filename] = len(split_into_blocks(subs))
+
         db.create_job(db_path, job_id, file.filename, model, source_lang, len(srt_files))
         for filename in srt_files:
-            with open(
-                os.path.join(input_dir, filename), encoding="utf-8", errors="ignore"
-            ) as f:
-                subs = list(srt_lib.parse(f.read()))
-            total_blocks = len(split_into_blocks(subs))
-            db.create_job_file(db_path, str(uuid.uuid4()), job_id, filename, total_blocks)
+            db.create_job_file(
+                db_path, str(uuid.uuid4()), job_id, filename, file_block_counts[filename]
+            )
 
         return {"id": job_id}
 
@@ -69,6 +78,8 @@ def get_router(db_path: str, storage_dir: str) -> APIRouter:
         if job["status"] not in ("completed", "completed_with_errors"):
             raise HTTPException(status_code=409, detail="El job aún no ha terminado")
         zip_path = os.path.join(storage_dir, job_id, "output.zip")
+        if not os.path.isfile(zip_path):
+            raise HTTPException(status_code=404, detail="El archivo de salida no existe")
         return FileResponse(
             zip_path,
             media_type="application/zip",

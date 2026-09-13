@@ -1,11 +1,7 @@
-import os
-
 from fastapi import APIRouter, HTTPException
 
-from app import db
+from app.config import resolve_ollama_url
 from app.ollama_client import OllamaClient
-
-DEFAULT_OLLAMA_URL = "http://host.containers.internal:11434"
 
 
 def get_router(db_path: str) -> APIRouter:
@@ -13,8 +9,7 @@ def get_router(db_path: str) -> APIRouter:
 
     @router.get("/api/models")
     async def list_models():
-        default = os.environ.get("OLLAMA_BASE_URL", DEFAULT_OLLAMA_URL)
-        base_url = db.get_config(db_path, "ollama_base_url", default)
+        base_url = resolve_ollama_url(db_path)
         client = OllamaClient(base_url)
         try:
             models = await client.list_models()

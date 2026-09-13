@@ -6,6 +6,26 @@ import srt
 
 LINE_PATTERN = re.compile(r"^\[(\d+)\]\s*(.*)$")
 
+ENCODING_FALLBACKS = ("utf-8-sig", "cp1252", "latin-1")
+
+
+def read_srt_text(path: str) -> str:
+    """Read a .srt file trying a chain of encodings.
+
+    Tries utf-8-sig, then cp1252, then latin-1 (which never fails, since
+    every byte value is a valid latin-1 code point).
+    """
+    with open(path, "rb") as f:
+        raw = f.read()
+
+    for encoding in ENCODING_FALLBACKS[:-1]:
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+
+    return raw.decode(ENCODING_FALLBACKS[-1])
+
 
 @dataclass
 class SubtitleBlock:
@@ -66,8 +86,7 @@ async def translate_srt_file(
     on_block_translated: Callable[[int, int], None] | None = None,
     block_size: int = 25,
 ) -> tuple[int, int]:
-    with open(input_path, encoding="utf-8") as f:
-        subs = list(srt.parse(f.read()))
+    subs = list(srt.parse(read_srt_text(input_path)))
 
     blocks = split_into_blocks(subs, block_size=block_size)
     translated_by_index: dict[int, str] = {}

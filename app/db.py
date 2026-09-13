@@ -194,6 +194,19 @@ def get_next_pending_job(db_path: str) -> dict | None:
         conn.close()
 
 
+def reset_stale_processing_jobs(db_path: str) -> None:
+    conn = _connect(db_path)
+    try:
+        conn.execute(
+            "UPDATE jobs SET status = 'pending', processed_files = 0, updated_at = ? "
+            "WHERE status = 'processing'",
+            (_now(),),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def get_config(db_path: str, key: str, default: str | None = None) -> str | None:
     conn = _connect(db_path)
     try:

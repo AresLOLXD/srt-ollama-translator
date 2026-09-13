@@ -1,8 +1,9 @@
+import asyncio
 import os
 import zipfile
 import pytest
 from app import db
-from app.queue_worker import process_job
+from app.queue_worker import process_job, worker_loop
 
 
 class FakeOllamaClient:
@@ -123,3 +124,63 @@ async def test_process_job_catches_initial_status_update_failure(tmp_path, db_pa
     updated_job = db.get_job(db_path, "job-1")
     assert updated_job["status"] == "failed"
     assert "Database connection lost" in updated_job["error_message"]
+
+
+@pytest.mark.asyncio
+async def test_worker_loop_uses_ollama_base_url_env_var_when_config_unset(
+    tmp_path, db_path, monkeypatch
+):
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://env-configured:11434")
+    storage_dir = str(tmp_path / "storage")
+    job_dir = os.path.join(storage_dir, "job-1", "input")
+    os.makedirs(job_dir)
+    _write_srt(os.path.join(job_dir, "episode1.srt"))
+
+    db.create_job(db_path, "job-1", "movie.zip", "llama3.1", "auto", total_files=1)
+    db.create_job_file(db_path, "file-1", "job-1", "episode1.srt", total_blocks=1)
+
+    seen_urls = []
+
+    def factory(base_url):
+        seen_urls.append(base_url)
+        return FakeOllamaClient()
+
+    task = asyncio.create_task(
+        worker_loop(db_path, storage_dir, factory, poll_interval=0.01)
+    )
+    for _ in range(100):
+        if seen_urls:
+            break
+        await asyncio.sleep(0.01)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    assert seen_urls == ["http://env-configured:11434"]
+
+
+@pytest.mark.asyncio
+async def test_worker_loop_does_not_raise_when_get_next_pending_job_fails(
+    db_path, monkeypatch
+):
+    call_count = [0]
+
+    def failing_get_next_pending_job(db_path):
+        call_count[0] += 1
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(db, "get_next_pending_job", failing_get_next_pending_job)
+
+    task = asyncio.create_task(
+        worker_loop(db_path, "/tmp/storage", lambda base_url: FakeOllamaClient(), poll_interval=0.01)
+    )
+    await asyncio.sleep(0.05)
+    assert not task.done()
+    assert call_count[0] > 0
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
