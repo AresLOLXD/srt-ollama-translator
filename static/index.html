@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Traductor de subtítulos</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <h1>Traductor de subtítulos SRT</h1>
+
+  <section id="config-section">
+    <h2>Configuración</h2>
+    <label>
+      URL de Ollama:
+      <input type="text" id="ollama-url-input" />
+    </label>
+    <button id="save-config-btn">Guardar</button>
+    <span id="config-status"></span>
+  </section>
+
+  <section id="upload-section">
+    <h2>Nuevo trabajo</h2>
+    <form id="upload-form">
+      <label>
+        Archivo .zip:
+        <input type="file" id="zip-input" accept=".zip" required />
+      </label>
+      <label>
+        Modelo:
+        <select id="model-select"></select>
+        <button type="button" id="refresh-models-btn">Refrescar modelos</button>
+      </label>
+      <label>
+        Idioma de origen:
+        <select id="source-lang-select">
+          <option value="auto">Detectar automáticamente</option>
+          <option value="en">Inglés</option>
+          <option value="fr">Francés</option>
+          <option value="de">Alemán</option>
+          <option value="pt">Portugués</option>
+          <option value="it">Italiano</option>
+        </select>
+      </label>
+      <button type="submit">Encolar trabajo</button>
+    </form>
+    <span id="upload-status"></span>
+  </section>
+
+  <section id="jobs-section">
+    <h2>Trabajos</h2>
+    <table id="jobs-table">
+      <thead>
+        <tr>
+          <th>Archivo</th>
+          <th>Estado</th>
+          <th>Progreso</th>
+          <th>Acción</th>
+        </tr>
+      </thead>
+      <tbody id="jobs-table-body"></tbody>
+    </table>
+  </section>
+
+  <script src="/app.js"></script>
+</body>
+</html>
