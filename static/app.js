@@ -80,7 +80,11 @@ function renderJobRow(job) {
   row.appendChild(statusCell);
 
   const progressCell = document.createElement("td");
-  progressCell.textContent = `${job.processed_files} / ${job.total_files} archivos`;
+  let progressText = `${job.processed_files} / ${job.total_files} archivos`;
+  if (job.current_file) {
+    progressText += ` — ${job.current_file.filename}: ${job.current_file.translated_blocks}/${job.current_file.total_blocks} bloques`;
+  }
+  progressCell.textContent = progressText;
   row.appendChild(progressCell);
 
   const actionCell = document.createElement("td");
@@ -90,6 +94,21 @@ function renderJobRow(job) {
     link.textContent = "Descargar";
     actionCell.appendChild(link);
   }
+
+  const deleteButton = document.createElement("button");
+  deleteButton.textContent = "Borrar";
+  deleteButton.disabled = job.status === "processing";
+  deleteButton.addEventListener("click", async () => {
+    try {
+      const response = await fetch(`/api/jobs/${job.id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      await refreshJobs();
+    } catch (err) {
+      alert("Error al borrar el trabajo");
+    }
+  });
+  actionCell.appendChild(deleteButton);
+
   row.appendChild(actionCell);
 
   return row;
