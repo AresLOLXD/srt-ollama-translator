@@ -1,0 +1,12 @@
+services:
+  srt-translator:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_BASE_URL=http://host.containers.internal:11434
+    volumes:
+      - ./data/db:/data/db
+      - ./data/storage:/data/storage
+    extra_hosts:
+      - "host.containers.internal:host-gateway"
