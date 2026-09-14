@@ -1,6 +1,7 @@
 import asyncio
 import os
 import zipfile
+import httpx
 import pytest
 from app import db
 from app.queue_worker import process_job, worker_loop
@@ -363,6 +364,60 @@ async def test_process_job_stopped_file_keeps_resumable_block_progress(tmp_path,
 
     resumed = db.get_completed_job_file_blocks(db_path, "file-1")
     assert resumed == {1: {i: f"Traducido {i}" for i in range(1, 26)}}
+
+
+@pytest.mark.asyncio
+async def test_process_job_auto_retries_mid_file_exception_without_recalling_client_for_done_block(
+    tmp_path, db_path
+):
+    storage_dir = str(tmp_path / "storage")
+    job_dir = os.path.join(storage_dir, "job-1", "input")
+    os.makedirs(job_dir)
+    _write_multi_block_srt(os.path.join(job_dir, "episode1.srt"), 50)
+
+    db.create_job(db_path, "job-1", "movie.zip", "llama3.1", "auto", total_files=1)
+    db.create_job_file(db_path, "file-1", "job-1", "episode1.srt", total_blocks=2)
+
+    class FailingOnSecondBlockClient:
+        def __init__(self):
+            self.calls = 0
+
+        async def chat(self, model: str, prompt: str) -> str:
+            self.calls += 1
+            if self.calls == 1:
+                return "\n".join(f"[{i}] Traducido {i}" for i in range(1, 26))
+            raise httpx.RemoteProtocolError(
+                "Server disconnected without sending a response."
+            )
+
+    job = db.get_job(db_path, "job-1")
+    first_client = FailingOnSecondBlockClient()
+    await process_job(db_path, storage_dir, first_client, job)
+
+    updated_job = db.get_job(db_path, "job-1")
+    assert updated_job["status"] == "pending"
+    assert updated_job["retry_count"] == 1
+
+    completed_blocks = db.get_completed_job_file_blocks(db_path, "file-1")
+    assert completed_blocks == {1: {i: f"Traducido {i}" for i in range(1, 26)}}
+
+    class FailIfCalledWithBlockOneClient:
+        def __init__(self):
+            self.calls = 0
+
+        async def chat(self, model: str, prompt: str) -> str:
+            self.calls += 1
+            if "Line 1\n" in prompt or "[1] " in prompt:
+                raise AssertionError("block 1 should not be re-sent to Ollama")
+            return "\n".join(f"[{i}] Traducido {i}" for i in range(26, 51))
+
+    job = db.get_job(db_path, "job-1")
+    second_client = FailIfCalledWithBlockOneClient()
+    await process_job(db_path, storage_dir, second_client, job)
+
+    updated_job = db.get_job(db_path, "job-1")
+    assert updated_job["status"] == "completed"
+    assert second_client.calls == 1
 
 
 @pytest.mark.asyncio
