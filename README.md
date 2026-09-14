@@ -15,6 +15,28 @@ usando un modelo de [Ollama](https://ollama.com) corriendo en tu máquina.
 podman-compose up --build
 ```
 
+### Reinicio automático del contenedor con Podman
+
+`docker-compose.yml` ya define `restart: unless-stopped`, pero a diferencia de
+Docker, Podman no tiene un daemon en segundo plano que aplique esa política
+por sí solo tras un reinicio del host. Para que el contenedor se reinicie
+solo (por ejemplo, si Ollama tarda en levantar y el contenedor falla al
+arrancar, o tras reiniciar la máquina), hay que habilitar el servicio de
+systemd que Podman provee para esto:
+
+```bash
+# Habilita el servicio que reinicia, al boot, los contenedores con política de restart
+systemctl --user enable --now podman-restart.service
+
+# Si usas Podman en modo rootless, además necesitas "lingering" para que tus
+# servicios de usuario sigan activos sin que haya una sesión iniciada
+loginctl enable-linger "$USER"
+```
+
+Con esto, cualquier contenedor creado con `restart: unless-stopped` (o
+`always`) se reiniciará automáticamente si se cae o si la máquina se reinicia,
+igual que ocurriría con Docker.
+
 ## Uso con Docker
 
 ```bash

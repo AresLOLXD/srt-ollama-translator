@@ -1,12 +1,13 @@
 services:
   srt-translator:
     build: .
+    restart: unless-stopped
     ports:
       - "${HOST_PORT:-8000}:8000"
     environment:
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.containers.internal:11434}
     volumes:
-      - ./data/db:/data/db
-      - ./data/storage:/data/storage
+      - ./data/db:/data/db:Z
+      - ./data/storage:/data/storage:Z
     extra_hosts:
       - "host.containers.internal:host-gateway"
