@@ -85,11 +85,28 @@ function renderJobRow(job) {
   row.appendChild(statusCell);
 
   const progressCell = document.createElement("td");
-  let progressText = `${job.processed_files} / ${job.total_files} archivos`;
+  const percent = job.total_files > 0 ? Math.round((job.processed_files / job.total_files) * 100) : 0;
+
+  const barTrack = document.createElement("div");
+  barTrack.className = "progress-bar-track";
+  const barFill = document.createElement("div");
+  barFill.className = "progress-bar-fill";
+  barFill.style.width = `${percent}%`;
+  barTrack.appendChild(barFill);
+  progressCell.appendChild(barTrack);
+
+  const filesLine = document.createElement("div");
+  filesLine.className = "progress-files";
+  filesLine.textContent = `${job.processed_files} / ${job.total_files} archivos (${percent}%)`;
+  progressCell.appendChild(filesLine);
+
   if (job.current_file) {
-    progressText += ` — ${job.current_file.filename}: ${job.current_file.translated_blocks}/${job.current_file.total_blocks} bloques`;
+    const detailLine = document.createElement("div");
+    detailLine.className = "progress-detail";
+    detailLine.textContent = `Procesando: ${job.current_file.filename} (${job.current_file.translated_blocks}/${job.current_file.total_blocks} bloques)`;
+    progressCell.appendChild(detailLine);
   }
-  progressCell.textContent = progressText;
+
   row.appendChild(progressCell);
 
   const actionCell = document.createElement("td");
