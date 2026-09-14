@@ -311,6 +311,61 @@ async def test_process_job_resumes_mid_file_without_recalling_ollama_for_done_bl
 
 
 @pytest.mark.asyncio
+async def test_process_job_stops_cleanly_when_cancel_requested_mid_file(tmp_path, db_path):
+    storage_dir = str(tmp_path / "storage")
+    job_dir = os.path.join(storage_dir, "job-1", "input")
+    os.makedirs(job_dir)
+    _write_multi_block_srt(os.path.join(job_dir, "episode1.srt"), 50)
+
+    db.create_job(db_path, "job-1", "movie.zip", "llama3.1", "auto", total_files=1)
+    db.create_job_file(db_path, "file-1", "job-1", "episode1.srt", total_blocks=2)
+
+    class CancellingClient:
+        def __init__(self):
+            self.calls = 0
+
+        async def chat(self, model: str, prompt: str) -> str:
+            self.calls += 1
+            # Simulate the user clicking "Detener" while block 1 is in flight.
+            db.set_job_cancel_requested(db_path, "job-1", True)
+            return "\n".join(f"[{i}] Traducido {i}" for i in range(1, 26))
+
+    job = db.get_job(db_path, "job-1")
+    client = CancellingClient()
+    await process_job(db_path, storage_dir, client, job)
+
+    updated_job = db.get_job(db_path, "job-1")
+    assert updated_job["status"] == "stopped"
+    assert updated_job["cancel_requested"] == 0
+    assert client.calls == 1  # block 2 was never attempted
+
+    files = db.get_job_files(db_path, "job-1")
+    assert files[0]["status"] == "processing"  # left mid-file, resumable later
+
+
+@pytest.mark.asyncio
+async def test_process_job_stopped_file_keeps_resumable_block_progress(tmp_path, db_path):
+    storage_dir = str(tmp_path / "storage")
+    job_dir = os.path.join(storage_dir, "job-1", "input")
+    os.makedirs(job_dir)
+    _write_multi_block_srt(os.path.join(job_dir, "episode1.srt"), 50)
+
+    db.create_job(db_path, "job-1", "movie.zip", "llama3.1", "auto", total_files=1)
+    db.create_job_file(db_path, "file-1", "job-1", "episode1.srt", total_blocks=2)
+
+    class CancellingClient:
+        async def chat(self, model: str, prompt: str) -> str:
+            db.set_job_cancel_requested(db_path, "job-1", True)
+            return "\n".join(f"[{i}] Traducido {i}" for i in range(1, 26))
+
+    job = db.get_job(db_path, "job-1")
+    await process_job(db_path, storage_dir, CancellingClient(), job)
+
+    resumed = db.get_completed_job_file_blocks(db_path, "file-1")
+    assert resumed == {1: {i: f"Traducido {i}" for i in range(1, 26)}}
+
+
+@pytest.mark.asyncio
 async def test_worker_loop_does_not_raise_when_get_next_pending_job_fails(
     db_path, monkeypatch
 ):
