@@ -254,6 +254,111 @@ def test_delete_job_removes_record_and_files(client):
     assert not os.path.exists(os.path.join(storage_dir, job_id))
 
 
+def test_stop_pending_job_marks_it_stopped_immediately(client):
+    test_client, db_path, _storage_dir = client
+    zip_bytes = _make_zip_bytes({"episode1.srt": "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n"})
+    create_response = test_client.post(
+        "/api/jobs",
+        files={"file": ("movie.zip", zip_bytes, "application/zip")},
+        data={"model": "llama3.1", "source_lang": "en"},
+    )
+    job_id = create_response.json()["id"]
+
+    response = test_client.post(f"/api/jobs/{job_id}/stop")
+    assert response.status_code == 200
+    assert db.get_job(db_path, job_id)["status"] == "stopped"
+
+
+def test_stop_processing_job_sets_cancel_requested(client):
+    test_client, db_path, _storage_dir = client
+    zip_bytes = _make_zip_bytes({"episode1.srt": "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n"})
+    create_response = test_client.post(
+        "/api/jobs",
+        files={"file": ("movie.zip", zip_bytes, "application/zip")},
+        data={"model": "llama3.1", "source_lang": "en"},
+    )
+    job_id = create_response.json()["id"]
+    db.update_job_status(db_path, job_id, "processing")
+
+    response = test_client.post(f"/api/jobs/{job_id}/stop")
+    assert response.status_code == 200
+    job = db.get_job(db_path, job_id)
+    assert job["status"] == "processing"
+    assert job["cancel_requested"] == 1
+
+
+def test_stop_completed_job_returns_409(client):
+    test_client, db_path, _storage_dir = client
+    zip_bytes = _make_zip_bytes({"episode1.srt": "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n"})
+    create_response = test_client.post(
+        "/api/jobs",
+        files={"file": ("movie.zip", zip_bytes, "application/zip")},
+        data={"model": "llama3.1", "source_lang": "en"},
+    )
+    job_id = create_response.json()["id"]
+    db.update_job_status(db_path, job_id, "completed")
+
+    response = test_client.post(f"/api/jobs/{job_id}/stop")
+    assert response.status_code == 409
+
+
+def test_stop_unknown_job_returns_404(client):
+    test_client, _db_path, _storage_dir = client
+    response = test_client.post("/api/jobs/does-not-exist/stop")
+    assert response.status_code == 404
+
+
+def test_resume_failed_job_sets_pending_and_clears_retry_state(client):
+    test_client, db_path, _storage_dir = client
+    zip_bytes = _make_zip_bytes({"episode1.srt": "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n"})
+    create_response = test_client.post(
+        "/api/jobs",
+        files={"file": ("movie.zip", zip_bytes, "application/zip")},
+        data={"model": "llama3.1", "source_lang": "en"},
+    )
+    job_id = create_response.json()["id"]
+    db.mark_job_for_retry(db_path, job_id, "boom")
+    db.mark_job_for_retry(db_path, job_id, "boom")
+    db.update_job_status(db_path, job_id, "failed", error_message="boom")
+
+    response = test_client.post(f"/api/jobs/{job_id}/resume")
+    assert response.status_code == 200
+    job = db.get_job(db_path, job_id)
+    assert job["status"] == "pending"
+    assert job["retry_count"] == 0
+
+
+def test_resume_stopped_job_sets_pending(client):
+    test_client, db_path, _storage_dir = client
+    zip_bytes = _make_zip_bytes({"episode1.srt": "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n"})
+    create_response = test_client.post(
+        "/api/jobs",
+        files={"file": ("movie.zip", zip_bytes, "application/zip")},
+        data={"model": "llama3.1", "source_lang": "en"},
+    )
+    job_id = create_response.json()["id"]
+    db.update_job_status(db_path, job_id, "stopped")
+
+    response = test_client.post(f"/api/jobs/{job_id}/resume")
+    assert response.status_code == 200
+    assert db.get_job(db_path, job_id)["status"] == "pending"
+
+
+def test_resume_processing_job_returns_409(client):
+    test_client, db_path, _storage_dir = client
+    zip_bytes = _make_zip_bytes({"episode1.srt": "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n"})
+    create_response = test_client.post(
+        "/api/jobs",
+        files={"file": ("movie.zip", zip_bytes, "application/zip")},
+        data={"model": "llama3.1", "source_lang": "en"},
+    )
+    job_id = create_response.json()["id"]
+    db.update_job_status(db_path, job_id, "processing")
+
+    response = test_client.post(f"/api/jobs/{job_id}/resume")
+    assert response.status_code == 409
+
+
 def test_delete_job_returns_409_when_processing(client):
     test_client, db_path, storage_dir = client
     zip_bytes = _make_zip_bytes(

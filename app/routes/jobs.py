@@ -101,6 +101,33 @@ def get_router(db_path: str, storage_dir: str) -> APIRouter:
             filename=f"traducido_{job['original_zip_name']}",
         )
 
+    @router.post("/api/jobs/{job_id}/stop")
+    def stop_job(job_id: str):
+        job = db.get_job(db_path, job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Job no encontrado")
+        if job["status"] == "pending":
+            db.update_job_status(db_path, job_id, "stopped")
+        elif job["status"] == "processing":
+            db.set_job_cancel_requested(db_path, job_id, True)
+        else:
+            raise HTTPException(
+                status_code=409, detail="El job no se puede detener en su estado actual"
+            )
+        return {"stopped": True}
+
+    @router.post("/api/jobs/{job_id}/resume")
+    def resume_job(job_id: str):
+        job = db.get_job(db_path, job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Job no encontrado")
+        if job["status"] not in ("failed", "stopped"):
+            raise HTTPException(
+                status_code=409, detail="El job no se puede reanudar en su estado actual"
+            )
+        db.reset_job_for_resume(db_path, job_id)
+        return {"resumed": True}
+
     @router.delete("/api/jobs/{job_id}")
     def delete_job(job_id: str):
         job = db.get_job(db_path, job_id)
