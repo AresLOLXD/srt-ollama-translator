@@ -142,6 +142,55 @@ def increment_job_processed_files(db_path: str, job_id: str) -> None:
         conn.close()
 
 
+def mark_job_for_retry(db_path: str, job_id: str, error_message: str) -> None:
+    conn = _connect(db_path)
+    try:
+        conn.execute(
+            "UPDATE jobs SET status = 'pending', retry_count = retry_count + 1, "
+            "error_message = ?, updated_at = ? WHERE id = ?",
+            (error_message, _now(), job_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def reset_job_for_resume(db_path: str, job_id: str) -> None:
+    conn = _connect(db_path)
+    try:
+        conn.execute(
+            "UPDATE jobs SET status = 'pending', retry_count = 0, cancel_requested = 0, "
+            "error_message = NULL, updated_at = ? WHERE id = ?",
+            (_now(), job_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_job_cancel_requested(db_path: str, job_id: str, value: bool) -> None:
+    conn = _connect(db_path)
+    try:
+        conn.execute(
+            "UPDATE jobs SET cancel_requested = ?, updated_at = ? WHERE id = ?",
+            (int(value), _now(), job_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_job_cancel_requested(db_path: str, job_id: str) -> bool:
+    conn = _connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT cancel_requested FROM jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+        return bool(row["cancel_requested"]) if row else False
+    finally:
+        conn.close()
+
+
 def delete_job(db_path: str, job_id: str) -> None:
     conn = _connect(db_path)
     try:
@@ -199,6 +248,52 @@ def update_job_file_progress(
             "UPDATE job_files SET translated_blocks = ?, failed_blocks = ? WHERE id = ?",
             (translated_blocks, failed_blocks, file_id),
         )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def upsert_job_file_block(
+    db_path: str, job_file_id: str, position: int, translations: dict[int, str], success: bool
+) -> None:
+    conn = _connect(db_path)
+    try:
+        translations_json = json.dumps({str(k): v for k, v in translations.items()})
+        conn.execute(
+            """
+            INSERT INTO job_file_blocks (job_file_id, position, translations_json, success)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(job_file_id, position) DO UPDATE SET
+                translations_json = excluded.translations_json,
+                success = excluded.success
+            """,
+            (job_file_id, position, translations_json, int(success)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_completed_job_file_blocks(db_path: str, job_file_id: str) -> dict[int, dict[int, str]]:
+    conn = _connect(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT position, translations_json FROM job_file_blocks "
+            "WHERE job_file_id = ? AND success = 1",
+            (job_file_id,),
+        ).fetchall()
+        return {
+            row["position"]: {int(k): v for k, v in json.loads(row["translations_json"]).items()}
+            for row in rows
+        }
+    finally:
+        conn.close()
+
+
+def delete_job_file_blocks(db_path: str, job_file_id: str) -> None:
+    conn = _connect(db_path)
+    try:
+        conn.execute("DELETE FROM job_file_blocks WHERE job_file_id = ?", (job_file_id,))
         conn.commit()
     finally:
         conn.close()
