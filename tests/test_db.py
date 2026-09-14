@@ -97,7 +97,7 @@ def test_reset_stale_processing_jobs_resets_processing_but_not_completed(db_path
 
     job1 = db.get_job(db_path, "job-1")
     assert job1["status"] == "pending"
-    assert job1["processed_files"] == 0
+    assert job1["processed_files"] == 1
 
     job2 = db.get_job(db_path, "job-2")
     assert job2["status"] == "completed"
@@ -121,8 +121,8 @@ def test_reset_stale_processing_jobs_resets_job_files_status(db_path):
     file2 = next(f for f in files if f["id"] == "file-2")
 
     assert file1["status"] == "pending"
-    assert file1["translated_blocks"] == 0
-    assert file1["failed_blocks"] == 0
+    assert file1["translated_blocks"] == 2
+    assert file1["failed_blocks"] == 1
 
     assert file2["status"] == "completed"
     assert file2["translated_blocks"] == 3

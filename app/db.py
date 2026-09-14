@@ -314,14 +314,10 @@ def reset_stale_processing_jobs(db_path: str) -> None:
     conn = _connect(db_path)
     try:
         conn.execute(
-            "UPDATE jobs SET status = 'pending', processed_files = 0, updated_at = ? "
-            "WHERE status = 'processing'",
+            "UPDATE jobs SET status = 'pending', updated_at = ? WHERE status = 'processing'",
             (_now(),),
         )
-        conn.execute(
-            "UPDATE job_files SET status = 'pending', translated_blocks = 0, failed_blocks = 0 "
-            "WHERE status = 'processing'"
-        )
+        conn.execute("UPDATE job_files SET status = 'pending' WHERE status = 'processing'")
         conn.commit()
     finally:
         conn.close()
