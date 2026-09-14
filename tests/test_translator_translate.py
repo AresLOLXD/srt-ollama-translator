@@ -174,3 +174,91 @@ async def test_translate_srt_file_with_filename_passes_to_client(tmp_path):
 
     assert len(client.prompts) == 1
     assert "eng.DialogueTest.srt" in client.prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_translate_srt_file_reports_block_results(tmp_path):
+    input_path = tmp_path / "input.srt"
+    input_path.write_text(
+        "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n"
+        "2\n00:00:01,000 --> 00:00:02,000\nWorld\n",
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "output.srt"
+    client = FakeClient(["[1] Hola\n[2] Mundo"])
+    results = []
+
+    await translate_srt_file(
+        client,
+        "llama3.1",
+        "en",
+        str(input_path),
+        str(output_path),
+        on_block_result=lambda position, translations, success: results.append(
+            (position, translations, success)
+        ),
+        block_size=25,
+    )
+
+    assert results == [(1, {1: "Hola", 2: "Mundo"}, True)]
+
+
+@pytest.mark.asyncio
+async def test_translate_srt_file_reports_failed_block_result(tmp_path):
+    input_path = tmp_path / "input.srt"
+    input_path.write_text(
+        "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n"
+        "2\n00:00:01,000 --> 00:00:02,000\nWorld\n",
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "output.srt"
+    client = FakeClient(["[1] Hola"])
+    results = []
+
+    await translate_srt_file(
+        client,
+        "llama3.1",
+        "en",
+        str(input_path),
+        str(output_path),
+        on_block_result=lambda position, translations, success: results.append(
+            (position, translations, success)
+        ),
+    )
+
+    assert results == [(1, {1: "Hola"}, False)]
+
+
+@pytest.mark.asyncio
+async def test_translate_srt_file_skips_ollama_for_resumed_blocks(tmp_path):
+    input_path = tmp_path / "input.srt"
+    lines = []
+    for i in range(1, 51):
+        start = f"00:00:{i:02d},000"
+        end = f"00:00:{i + 1:02d},000"
+        lines.append(f"{i}\n{start} --> {end}\nLine {i}\n")
+    input_path.write_text("\n".join(lines), encoding="utf-8")
+    output_path = tmp_path / "output.srt"
+
+    # Only one scripted response: for block 2 (positions 26-50). Block 1 is
+    # "resumed" and must never reach the client.
+    block_2_response = "\n".join(f"[{i}] Traducido {i}" for i in range(26, 51))
+    client = FakeClient([block_2_response])
+    resume_blocks = {1: {i: f"Ya traducido {i}" for i in range(1, 26)}}
+
+    total_blocks, failed_blocks = await translate_srt_file(
+        client,
+        "llama3.1",
+        "en",
+        str(input_path),
+        str(output_path),
+        resume_blocks=resume_blocks,
+        block_size=25,
+    )
+
+    assert total_blocks == 2
+    assert failed_blocks == 0
+    assert client.calls == 1
+    output_text = output_path.read_text(encoding="utf-8")
+    assert "Ya traducido 1" in output_text
+    assert "Traducido 26" in output_text

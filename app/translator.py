@@ -91,18 +91,29 @@ async def translate_srt_file(
     input_path: str,
     output_path: str,
     on_block_translated: Callable[[int, int], None] | None = None,
+    on_block_result: Callable[[int, dict[int, str], bool], None] | None = None,
+    resume_blocks: dict[int, dict[int, str]] | None = None,
     block_size: int = 25,
     filename: str | None = None,
 ) -> tuple[int, int]:
     subs = list(srt.parse(read_srt_text(input_path)))
 
     blocks = split_into_blocks(subs, block_size=block_size)
+    resume_blocks = resume_blocks or {}
     translated_by_index: dict[int, str] = {}
     failed_blocks = 0
 
     for position, block in enumerate(blocks, start=1):
-        translations = await translate_block(client, model, block, source_lang, filename=filename)
         expected_indices = {sub.index for sub in block.subs}
+
+        if position in resume_blocks:
+            translations = resume_blocks[position]
+        else:
+            translations = await translate_block(client, model, block, source_lang, filename=filename)
+            success = expected_indices.issubset(translations.keys())
+            if on_block_result:
+                on_block_result(position, translations, success)
+
         if not expected_indices.issubset(translations.keys()):
             failed_blocks += 1
         translated_by_index.update(translations)
