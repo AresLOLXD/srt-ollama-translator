@@ -90,15 +90,33 @@ def get_router(db_path: str, storage_dir: str) -> APIRouter:
         job = db.get_job(db_path, job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Job no encontrado")
-        if job["status"] not in ("completed", "completed_with_errors"):
+
+        if job["status"] in ("completed", "completed_with_errors"):
+            zip_path = os.path.join(storage_dir, job_id, "output.zip")
+            if not os.path.isfile(zip_path):
+                raise HTTPException(status_code=404, detail="El archivo de salida no existe")
+            return FileResponse(
+                zip_path,
+                media_type="application/zip",
+                filename=f"traducido_{job['original_zip_name']}",
+            )
+
+        completed_filenames = [
+            f["filename"]
+            for f in db.get_job_files(db_path, job_id)
+            if f["status"] in ("completed", "completed_with_errors")
+        ]
+        if not completed_filenames:
             raise HTTPException(status_code=409, detail="El job aún no ha terminado")
-        zip_path = os.path.join(storage_dir, job_id, "output.zip")
-        if not os.path.isfile(zip_path):
-            raise HTTPException(status_code=404, detail="El archivo de salida no existe")
+
+        output_dir = os.path.join(storage_dir, job_id, "output")
+        partial_zip_path = os.path.join(storage_dir, job_id, "partial.zip")
+        zip_utils.create_zip_subset(output_dir, completed_filenames, partial_zip_path)
+
         return FileResponse(
-            zip_path,
+            partial_zip_path,
             media_type="application/zip",
-            filename=f"traducido_{job['original_zip_name']}",
+            filename=f"parcial_{job['original_zip_name']}",
         )
 
     @router.post("/api/jobs/{job_id}/stop")

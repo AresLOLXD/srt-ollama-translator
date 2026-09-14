@@ -254,6 +254,52 @@ def test_delete_job_removes_record_and_files(client):
     assert not os.path.exists(os.path.join(storage_dir, job_id))
 
 
+def test_download_partial_includes_only_completed_files(client):
+    test_client, db_path, storage_dir = client
+    zip_bytes = _make_zip_bytes(
+        {
+            "episode1.srt": "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n",
+            "episode2.srt": "1\n00:00:00,000 --> 00:00:01,000\nHi\n\n",
+        }
+    )
+    create_response = test_client.post(
+        "/api/jobs",
+        files={"file": ("movie.zip", zip_bytes, "application/zip")},
+        data={"model": "llama3.1", "source_lang": "en"},
+    )
+    job_id = create_response.json()["id"]
+
+    files = db.get_job_files(db_path, job_id)
+    file1 = next(f for f in files if f["filename"] == "episode1.srt")
+    db.update_job_file_status(db_path, file1["id"], "completed")
+    db.update_job_status(db_path, job_id, "failed", error_message="boom")
+
+    output_dir = os.path.join(storage_dir, job_id, "output")
+    os.makedirs(output_dir, exist_ok=True)
+    with open(os.path.join(output_dir, "episode1.srt"), "w", encoding="utf-8") as f:
+        f.write("translated content")
+
+    response = test_client.get(f"/api/jobs/{job_id}/download")
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+        assert zf.namelist() == ["episode1.srt"]
+
+
+def test_download_returns_409_when_no_file_completed_yet(client):
+    test_client, db_path, _storage_dir = client
+    zip_bytes = _make_zip_bytes({"episode1.srt": "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n"})
+    create_response = test_client.post(
+        "/api/jobs",
+        files={"file": ("movie.zip", zip_bytes, "application/zip")},
+        data={"model": "llama3.1", "source_lang": "en"},
+    )
+    job_id = create_response.json()["id"]
+    db.update_job_status(db_path, job_id, "failed", error_message="boom")
+
+    response = test_client.get(f"/api/jobs/{job_id}/download")
+    assert response.status_code == 409
+
+
 def test_stop_pending_job_marks_it_stopped_immediately(client):
     test_client, db_path, _storage_dir = client
     zip_bytes = _make_zip_bytes({"episode1.srt": "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n"})
