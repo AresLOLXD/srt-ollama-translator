@@ -74,7 +74,9 @@ async def test_process_job_marks_completed_with_errors_when_a_block_fails(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_process_job_marks_failed_on_unexpected_error(tmp_path, db_path):
+async def test_process_job_marks_pending_and_increments_retry_count_on_unexpected_error(
+    tmp_path, db_path
+):
     storage_dir = str(tmp_path / "storage")
     job_dir = os.path.join(storage_dir, "job-1", "input")
     os.makedirs(job_dir)
@@ -87,8 +89,28 @@ async def test_process_job_marks_failed_on_unexpected_error(tmp_path, db_path):
     await process_job(db_path, storage_dir, FakeOllamaClient(), job)
 
     updated_job = db.get_job(db_path, "job-1")
-    assert updated_job["status"] == "failed"
+    assert updated_job["status"] == "pending"
+    assert updated_job["retry_count"] == 1
     assert updated_job["error_message"] is not None
+
+
+@pytest.mark.asyncio
+async def test_process_job_marks_failed_after_retry_limit_exhausted(tmp_path, db_path):
+    storage_dir = str(tmp_path / "storage")
+    job_dir = os.path.join(storage_dir, "job-1", "input")
+    os.makedirs(job_dir)
+    # No .srt file written -> every attempt raises FileNotFoundError
+
+    db.create_job(db_path, "job-1", "movie.zip", "llama3.1", "auto", total_files=1)
+    db.create_job_file(db_path, "file-1", "job-1", "missing.srt", total_blocks=1)
+
+    for _ in range(4):
+        job = db.get_job(db_path, "job-1")
+        await process_job(db_path, storage_dir, FakeOllamaClient(), job)
+
+    updated_job = db.get_job(db_path, "job-1")
+    assert updated_job["status"] == "failed"
+    assert updated_job["retry_count"] == 3
 
 
 @pytest.mark.asyncio
@@ -120,9 +142,10 @@ async def test_process_job_catches_initial_status_update_failure(tmp_path, db_pa
     # the initial status update failed
     await process_job(db_path, storage_dir, FakeOllamaClient(), job)
 
-    # The job should be marked as failed with the error message
+    # The job should be marked as pending for auto-retry with the error message
     updated_job = db.get_job(db_path, "job-1")
-    assert updated_job["status"] == "failed"
+    assert updated_job["status"] == "pending"
+    assert updated_job["retry_count"] == 1
     assert "Database connection lost" in updated_job["error_message"]
 
 
