@@ -194,6 +194,11 @@ def get_job_cancel_requested(db_path: str, job_id: str) -> bool:
 def delete_job(db_path: str, job_id: str) -> None:
     conn = _connect(db_path)
     try:
+        conn.execute(
+            "DELETE FROM job_file_blocks WHERE job_file_id IN "
+            "(SELECT id FROM job_files WHERE job_id = ?)",
+            (job_id,),
+        )
         conn.execute("DELETE FROM job_files WHERE job_id = ?", (job_id,))
         conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
         conn.commit()

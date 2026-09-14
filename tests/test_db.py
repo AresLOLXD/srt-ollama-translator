@@ -85,6 +85,16 @@ def test_delete_job_removes_job_and_its_files(db_path):
     assert db.get_job_files(db_path, "job-1") == []
 
 
+def test_delete_job_removes_job_file_blocks(db_path):
+    db.create_job(db_path, "job-1", "a.zip", "llama3.1", "auto", total_files=1)
+    db.create_job_file(db_path, "file-1", "job-1", "episode1.srt", total_blocks=2)
+    db.upsert_job_file_block(db_path, "file-1", 1, {1: "Hola", 2: "Mundo"}, True)
+
+    db.delete_job(db_path, "job-1")
+
+    assert db.get_completed_job_file_blocks(db_path, "file-1") == {}
+
+
 def test_reset_stale_processing_jobs_resets_processing_but_not_completed(db_path):
     db.create_job(db_path, "job-1", "a.zip", "llama3.1", "auto", total_files=2)
     db.update_job_status(db_path, "job-1", "processing")
