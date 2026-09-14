@@ -31,3 +31,11 @@ def create_zip(src_dir: str, zip_path: str) -> None:
             for name in files:
                 full_path = os.path.join(root, name)
                 zf.write(full_path, os.path.relpath(full_path, src_dir))
+
+
+def create_zip_subset(src_dir: str, filenames: list[str], zip_path: str) -> None:
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name in filenames:
+            full_path = os.path.join(src_dir, name)
+            if os.path.isfile(full_path):
+                zf.write(full_path, name)

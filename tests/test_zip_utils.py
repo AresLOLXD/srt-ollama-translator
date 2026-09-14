@@ -1,6 +1,7 @@
 import os
 import zipfile
 from app.zip_utils import extract_zip, create_zip
+from app import zip_utils
 
 
 def test_extract_zip_finds_srt_files_recursively(tmp_path):
@@ -73,3 +74,29 @@ def test_extract_zip_rejects_absolute_path_entries(tmp_path):
         assert False, "extract_zip should raise ValueError for absolute paths"
     except ValueError as e:
         assert "unsafe path" in str(e).lower()
+
+
+def test_create_zip_subset_includes_only_named_files(tmp_path):
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "a.srt").write_text("a", encoding="utf-8")
+    (src_dir / "b.srt").write_text("b", encoding="utf-8")
+    (src_dir / "c.srt").write_text("c", encoding="utf-8")
+
+    zip_path = tmp_path / "out.zip"
+    zip_utils.create_zip_subset(str(src_dir), ["a.srt", "c.srt"], str(zip_path))
+
+    with zipfile.ZipFile(str(zip_path)) as zf:
+        assert sorted(zf.namelist()) == ["a.srt", "c.srt"]
+
+
+def test_create_zip_subset_skips_missing_files(tmp_path):
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "a.srt").write_text("a", encoding="utf-8")
+
+    zip_path = tmp_path / "out.zip"
+    zip_utils.create_zip_subset(str(src_dir), ["a.srt", "does-not-exist.srt"], str(zip_path))
+
+    with zipfile.ZipFile(str(zip_path)) as zf:
+        assert zf.namelist() == ["a.srt"]
