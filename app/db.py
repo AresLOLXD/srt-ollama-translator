@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from datetime import datetime, timezone
 
@@ -11,6 +12,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     total_files INTEGER NOT NULL,
     processed_files INTEGER NOT NULL DEFAULT 0,
     error_message TEXT,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    cancel_requested INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -23,6 +26,14 @@ CREATE TABLE IF NOT EXISTS job_files (
     total_blocks INTEGER NOT NULL DEFAULT 0,
     translated_blocks INTEGER NOT NULL DEFAULT 0,
     failed_blocks INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS job_file_blocks (
+    job_file_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    translations_json TEXT NOT NULL,
+    success INTEGER NOT NULL,
+    PRIMARY KEY (job_file_id, position)
 );
 
 CREATE TABLE IF NOT EXISTS config (
@@ -43,10 +54,20 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+
+
 def init_db(db_path: str) -> None:
     conn = _connect(db_path)
     try:
         conn.executescript(SCHEMA_SQL)
+        _ensure_column(conn, "jobs", "retry_count", "retry_count INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(
+            conn, "jobs", "cancel_requested", "cancel_requested INTEGER NOT NULL DEFAULT 0"
+        )
         conn.commit()
     finally:
         conn.close()

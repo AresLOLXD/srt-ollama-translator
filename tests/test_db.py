@@ -133,3 +133,109 @@ def test_config_roundtrip_and_default(db_path):
     assert db.get_config(db_path, "ollama_base_url", "http://default:11434") == "http://default:11434"
     db.set_config(db_path, "ollama_base_url", "http://custom:11434")
     assert db.get_config(db_path, "ollama_base_url", "http://default:11434") == "http://custom:11434"
+
+
+def test_new_job_has_retry_count_and_cancel_requested_defaults(db_path):
+    db.create_job(db_path, "job-1", "a.zip", "llama3.1", "auto", total_files=1)
+    job = db.get_job(db_path, "job-1")
+    assert job["retry_count"] == 0
+    assert job["cancel_requested"] == 0
+
+
+def test_init_db_migrates_existing_db_missing_new_columns(tmp_path):
+    import sqlite3
+
+    old_path = str(tmp_path / "old.db")
+    conn = sqlite3.connect(old_path)
+    conn.execute(
+        """
+        CREATE TABLE jobs (
+            id TEXT PRIMARY KEY,
+            original_zip_name TEXT NOT NULL,
+            model TEXT NOT NULL,
+            source_lang TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            total_files INTEGER NOT NULL,
+            processed_files INTEGER NOT NULL DEFAULT 0,
+            error_message TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO jobs VALUES ('job-1', 'a.zip', 'llama3.1', 'auto', 'pending', 1, 0, NULL, 't', 't')"
+    )
+    conn.commit()
+    conn.close()
+
+    db.init_db(old_path)
+
+    job = db.get_job(old_path, "job-1")
+    assert job["retry_count"] == 0
+    assert job["cancel_requested"] == 0
+
+
+def test_mark_job_for_retry_increments_count_sets_pending_and_error(db_path):
+    db.create_job(db_path, "job-1", "a.zip", "llama3.1", "auto", total_files=1)
+    db.update_job_status(db_path, "job-1", "processing")
+
+    db.mark_job_for_retry(db_path, "job-1", "connection reset")
+
+    job = db.get_job(db_path, "job-1")
+    assert job["status"] == "pending"
+    assert job["retry_count"] == 1
+    assert job["error_message"] == "connection reset"
+
+    db.mark_job_for_retry(db_path, "job-1", "connection reset again")
+    job = db.get_job(db_path, "job-1")
+    assert job["retry_count"] == 2
+
+
+def test_reset_job_for_resume_clears_retry_state(db_path):
+    db.create_job(db_path, "job-1", "a.zip", "llama3.1", "auto", total_files=1)
+    db.mark_job_for_retry(db_path, "job-1", "boom")
+    db.mark_job_for_retry(db_path, "job-1", "boom again")
+    db.update_job_status(db_path, "job-1", "failed", error_message="boom again")
+    db.set_job_cancel_requested(db_path, "job-1", True)
+
+    db.reset_job_for_resume(db_path, "job-1")
+
+    job = db.get_job(db_path, "job-1")
+    assert job["status"] == "pending"
+    assert job["retry_count"] == 0
+    assert job["cancel_requested"] == 0
+
+
+def test_set_and_get_job_cancel_requested(db_path):
+    db.create_job(db_path, "job-1", "a.zip", "llama3.1", "auto", total_files=1)
+    assert db.get_job_cancel_requested(db_path, "job-1") is False
+
+    db.set_job_cancel_requested(db_path, "job-1", True)
+    assert db.get_job_cancel_requested(db_path, "job-1") is True
+
+    db.set_job_cancel_requested(db_path, "job-1", False)
+    assert db.get_job_cancel_requested(db_path, "job-1") is False
+
+
+def test_get_job_cancel_requested_returns_false_for_unknown_job(db_path):
+    assert db.get_job_cancel_requested(db_path, "does-not-exist") is False
+
+
+def test_job_file_blocks_upsert_get_and_delete_roundtrip(db_path):
+    db.create_job(db_path, "job-1", "a.zip", "llama3.1", "auto", total_files=1)
+    db.create_job_file(db_path, "file-1", "job-1", "episode1.srt", total_blocks=2)
+
+    db.upsert_job_file_block(db_path, "file-1", 1, {1: "Hola", 2: "Mundo"}, True)
+    db.upsert_job_file_block(db_path, "file-1", 2, {3: "Chau"}, False)
+
+    completed = db.get_completed_job_file_blocks(db_path, "file-1")
+    assert completed == {1: {1: "Hola", 2: "Mundo"}}
+
+    # Upsert on the same position overwrites, doesn't duplicate
+    db.upsert_job_file_block(db_path, "file-1", 2, {3: "Chau", 4: "Adios"}, True)
+    completed = db.get_completed_job_file_blocks(db_path, "file-1")
+    assert completed == {1: {1: "Hola", 2: "Mundo"}, 2: {3: "Chau", 4: "Adios"}}
+
+    db.delete_job_file_blocks(db_path, "file-1")
+    assert db.get_completed_job_file_blocks(db_path, "file-1") == {}
