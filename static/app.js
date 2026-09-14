@@ -110,11 +110,50 @@ function renderJobRow(job) {
   row.appendChild(progressCell);
 
   const actionCell = document.createElement("td");
+
   if (job.status === "completed" || job.status === "completed_with_errors") {
     const link = document.createElement("a");
     link.href = `/api/jobs/${job.id}/download`;
     link.textContent = "Descargar";
     actionCell.appendChild(link);
+  } else if (
+    job.processed_files > 0 &&
+    (job.status === "processing" || job.status === "failed" || job.status === "stopped")
+  ) {
+    const link = document.createElement("a");
+    link.href = `/api/jobs/${job.id}/download`;
+    link.textContent = "Descargar parcial";
+    actionCell.appendChild(link);
+  }
+
+  if (job.status === "pending" || job.status === "processing") {
+    const stopButton = document.createElement("button");
+    stopButton.textContent = "Detener";
+    stopButton.addEventListener("click", async () => {
+      try {
+        const response = await fetch(`/api/jobs/${job.id}/stop`, { method: "POST" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        await refreshJobs();
+      } catch (err) {
+        alert("Error al detener el trabajo");
+      }
+    });
+    actionCell.appendChild(stopButton);
+  }
+
+  if (job.status === "failed" || job.status === "stopped") {
+    const resumeButton = document.createElement("button");
+    resumeButton.textContent = "Reanudar";
+    resumeButton.addEventListener("click", async () => {
+      try {
+        const response = await fetch(`/api/jobs/${job.id}/resume`, { method: "POST" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        await refreshJobs();
+      } catch (err) {
+        alert("Error al reanudar el trabajo");
+      }
+    });
+    actionCell.appendChild(resumeButton);
   }
 
   const deleteButton = document.createElement("button");
