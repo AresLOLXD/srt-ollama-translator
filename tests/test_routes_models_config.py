@@ -17,13 +17,17 @@ def db_path(tmp_path):
 
 def test_get_config_returns_default_when_unset(db_path, monkeypatch):
     monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+    monkeypatch.delenv("OLLAMA_TIMEOUT", raising=False)
     app = FastAPI()
     app.include_router(config_routes.get_router(db_path))
     client = TestClient(app)
 
     response = client.get("/api/config")
     assert response.status_code == 200
-    assert response.json() == {"ollama_base_url": "http://host.containers.internal:11434"}
+    assert response.json() == {
+        "ollama_base_url": "http://host.containers.internal:11434",
+        "ollama_timeout": 120.0,
+    }
 
 
 def test_post_config_persists_value(db_path):
@@ -31,12 +35,16 @@ def test_post_config_persists_value(db_path):
     app.include_router(config_routes.get_router(db_path))
     client = TestClient(app)
 
-    response = client.post("/api/config", json={"ollama_base_url": "http://custom:11434"})
+    response = client.post(
+        "/api/config",
+        json={"ollama_base_url": "http://custom:11434", "ollama_timeout": 300},
+    )
     assert response.status_code == 200
     assert db.get_config(db_path, "ollama_base_url") == "http://custom:11434"
+    assert db.get_config(db_path, "ollama_timeout") == "300.0"
 
     response = client.get("/api/config")
-    assert response.json() == {"ollama_base_url": "http://custom:11434"}
+    assert response.json() == {"ollama_base_url": "http://custom:11434", "ollama_timeout": 300.0}
 
 
 def test_list_models_proxies_ollama(db_path, monkeypatch):

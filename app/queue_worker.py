@@ -3,7 +3,7 @@ import logging
 import os
 
 from app import db, zip_utils
-from app.config import resolve_ollama_url
+from app.config import resolve_ollama_timeout, resolve_ollama_url
 from app.translator import translate_srt_file
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,8 @@ async def worker_loop(
                 await asyncio.sleep(poll_interval)
                 continue
             base_url = resolve_ollama_url(db_path)
-            ollama_client = ollama_client_factory(base_url)
+            timeout = resolve_ollama_timeout(db_path)
+            ollama_client = ollama_client_factory(base_url, timeout)
             await process_job(db_path, storage_dir, ollama_client, job)
         except Exception:  # noqa: BLE001 - the worker loop must never die silently
             logger.exception("Unexpected error in worker loop")

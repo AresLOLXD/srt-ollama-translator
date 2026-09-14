@@ -141,7 +141,7 @@ async def test_worker_loop_uses_ollama_base_url_env_var_when_config_unset(
 
     seen_urls = []
 
-    def factory(base_url):
+    def factory(base_url, timeout):
         seen_urls.append(base_url)
         return FakeOllamaClient()
 
@@ -162,6 +162,41 @@ async def test_worker_loop_uses_ollama_base_url_env_var_when_config_unset(
 
 
 @pytest.mark.asyncio
+async def test_worker_loop_uses_ollama_timeout_env_var_when_config_unset(
+    tmp_path, db_path, monkeypatch
+):
+    monkeypatch.setenv("OLLAMA_TIMEOUT", "300")
+    storage_dir = str(tmp_path / "storage")
+    job_dir = os.path.join(storage_dir, "job-1", "input")
+    os.makedirs(job_dir)
+    _write_srt(os.path.join(job_dir, "episode1.srt"))
+
+    db.create_job(db_path, "job-1", "movie.zip", "llama3.1", "auto", total_files=1)
+    db.create_job_file(db_path, "file-1", "job-1", "episode1.srt", total_blocks=1)
+
+    seen_timeouts = []
+
+    def factory(base_url, timeout):
+        seen_timeouts.append(timeout)
+        return FakeOllamaClient()
+
+    task = asyncio.create_task(
+        worker_loop(db_path, storage_dir, factory, poll_interval=0.01)
+    )
+    for _ in range(100):
+        if seen_timeouts:
+            break
+        await asyncio.sleep(0.01)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    assert seen_timeouts == [300.0]
+
+
+@pytest.mark.asyncio
 async def test_worker_loop_does_not_raise_when_get_next_pending_job_fails(
     db_path, monkeypatch
 ):
@@ -174,7 +209,12 @@ async def test_worker_loop_does_not_raise_when_get_next_pending_job_fails(
     monkeypatch.setattr(db, "get_next_pending_job", failing_get_next_pending_job)
 
     task = asyncio.create_task(
-        worker_loop(db_path, "/tmp/storage", lambda base_url: FakeOllamaClient(), poll_interval=0.01)
+        worker_loop(
+            db_path,
+            "/tmp/storage",
+            lambda base_url, timeout: FakeOllamaClient(),
+            poll_interval=0.01,
+        )
     )
     await asyncio.sleep(0.05)
     assert not task.done()

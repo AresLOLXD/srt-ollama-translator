@@ -3,6 +3,7 @@ const uploadStatus = document.getElementById("upload-status");
 const jobsTableBody = document.getElementById("jobs-table-body");
 const modelSelect = document.getElementById("model-select");
 const ollamaUrlInput = document.getElementById("ollama-url-input");
+const ollamaTimeoutInput = document.getElementById("ollama-timeout-input");
 
 async function loadConfig() {
   try {
@@ -10,6 +11,7 @@ async function loadConfig() {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     ollamaUrlInput.value = data.ollama_base_url;
+    ollamaTimeoutInput.value = data.ollama_timeout;
   } catch (err) {
     ollamaUrlInput.value = "";
     ollamaUrlInput.placeholder = "No se pudo cargar la configuración";
@@ -22,7 +24,10 @@ async function saveConfig() {
   const response = await fetch("/api/config", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ollama_base_url: ollamaUrlInput.value }),
+    body: JSON.stringify({
+      ollama_base_url: ollamaUrlInput.value,
+      ollama_timeout: Number(ollamaTimeoutInput.value),
+    }),
   });
   configStatus.textContent = response.ok ? "Guardado" : "Error al guardar";
 }
