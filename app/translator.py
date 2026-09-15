@@ -41,7 +41,9 @@ def split_into_blocks(subs: list[srt.Subtitle], block_size: int = 25) -> list[Su
 
 def build_prompt(block: SubtitleBlock, source_lang: str, filename: str | None = None) -> str:
     source_desc = "el idioma detectado automáticamente" if source_lang == "auto" else source_lang
-    lines = "\n".join(f"[{sub.index}] {sub.content}" for sub in block.subs)
+    lines = "\n".join(
+        f"[{sub.index}] {sub.content}" for sub in block.subs if sub.content.strip() != ""
+    )
     filename_line = f"Nombre del archivo: {filename}. " if filename else ""
     return (
         "Traduce al español los siguientes subtítulos de una película o serie. "
@@ -73,7 +75,9 @@ async def translate_block(
     max_retries: int = 3,
     filename: str | None = None,
 ) -> dict[int, str]:
-    expected_indices = {sub.index for sub in block.subs}
+    expected_indices = {sub.index for sub in block.subs if sub.content.strip() != ""}
+    if not expected_indices:
+        return {}
     translations: dict[int, str] = {}
 
     for _attempt in range(max_retries):
@@ -106,7 +110,7 @@ async def translate_srt_file(
     failed_blocks = 0
 
     for position, block in enumerate(blocks, start=1):
-        expected_indices = {sub.index for sub in block.subs}
+        expected_indices = {sub.index for sub in block.subs if sub.content.strip() != ""}
 
         if position in resume_blocks:
             translations = resume_blocks[position]

@@ -262,3 +262,49 @@ async def test_translate_srt_file_skips_ollama_for_resumed_blocks(tmp_path):
     output_text = output_path.read_text(encoding="utf-8")
     assert "Ya traducido 1" in output_text
     assert "Traducido 26" in output_text
+
+
+@pytest.mark.asyncio
+async def test_translate_block_returns_empty_without_calling_client_when_all_subs_blank():
+    client = FakeClient(["should never be used"])
+    block = make_block(1)
+    block.subs[0].content = "   "
+    result = await translate_block(client, "llama3.1", block, "en")
+    assert result == {}
+    assert client.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_translate_block_ignores_empty_subs_in_expected_indices():
+    client = FakeClient(["[2] Mundo"])
+    block = make_block(2)
+    block.subs[0].content = ""
+    result = await translate_block(client, "llama3.1", block, "en")
+    assert result == {2: "Mundo"}
+    assert client.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_translate_srt_file_skips_empty_subtitle_and_still_succeeds(tmp_path):
+    # Note: srt.compose() drops subtitles with empty content entirely (they
+    # never round-trip back out of srt.parse), so the blank subtitle is
+    # written as raw .srt text instead, to guarantee it actually parses back
+    # as a subtitle with content == "" alongside the non-blank one.
+    input_path = tmp_path / "input.srt"
+    input_path.write_text(
+        "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n"
+        "2\n00:00:01,000 --> 00:00:02,000\n\n\n",
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "output.srt"
+    client = FakeClient(["[1] Hola"])
+
+    total_blocks, failed_blocks = await translate_srt_file(
+        client, "llama3.1", "en", str(input_path), str(output_path)
+    )
+
+    assert total_blocks == 1
+    assert failed_blocks == 0
+    assert client.calls == 1
+    output_text = output_path.read_text(encoding="utf-8")
+    assert "Hola" in output_text

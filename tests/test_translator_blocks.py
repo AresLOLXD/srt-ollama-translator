@@ -79,3 +79,12 @@ def test_build_prompt_instructs_to_preserve_formatting_tags():
     prompt = build_prompt(block, source_lang="en")
     assert "<i>" in prompt
     assert "conservalas" in prompt.lower() or "consérvalas" in prompt.lower()
+
+
+def test_build_prompt_skips_empty_subtitles():
+    subs = make_subs(2)
+    subs[0].content = ""
+    block = SubtitleBlock(subs=subs)
+    prompt = build_prompt(block, source_lang="en")
+    assert "[1]" not in prompt
+    assert "[2] Line 2" in prompt
