@@ -97,3 +97,17 @@ async def test_chat_does_not_retry_http_status_errors():
         await client.chat("llama3.1", "hello")
 
     assert calls["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_chat_sends_low_temperature_option():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = request.read()
+        return httpx.Response(200, json={"message": {"content": "hola"}})
+
+    client = OllamaClient("http://fake-ollama:11434", transport=httpx.MockTransport(handler))
+    await client.chat("llama3.1", "hello")
+
+    assert b'"temperature": 0.2' in captured["body"] or b'"temperature":0.2' in captured["body"]

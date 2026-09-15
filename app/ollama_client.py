@@ -37,6 +37,7 @@ class OllamaClient:
                             "model": model,
                             "messages": [{"role": "user", "content": prompt}],
                             "stream": False,
+                            "options": {"temperature": 0.2},
                         },
                     )
                     response.raise_for_status()
