@@ -357,3 +357,12 @@ async def test_translate_srt_file_passes_context_from_previous_block(tmp_path):
     assert len(context_prompts) == 1
     assert "Hello" in context_prompts[0]
     assert "Hola" in context_prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_translate_block_forwards_glossary_to_every_retry():
+    client = FakeClient(["not matching", "[1] Hola\n[2] Mundo"])
+    block = make_block(2)
+    await translate_block(client, "llama3.1", block, "en", glossary=["Jack"])
+    assert len(client.prompts) == 2
+    assert all("Jack" in p for p in client.prompts)

@@ -103,3 +103,17 @@ def test_build_prompt_without_context_omits_section():
     block = SubtitleBlock(subs=make_subs(1))
     prompt = build_prompt(block, source_lang="en")
     assert "Contexto de continuidad" not in prompt
+
+
+def test_build_prompt_includes_glossary_terms():
+    block = SubtitleBlock(subs=make_subs(1))
+    prompt = build_prompt(block, source_lang="en", glossary=["Jack", "Sarah"])
+    assert "Jack" in prompt
+    assert "Sarah" in prompt
+    assert "sin traducir" in prompt
+
+
+def test_build_prompt_without_glossary_omits_instruction():
+    block = SubtitleBlock(subs=make_subs(1))
+    prompt = build_prompt(block, source_lang="en")
+    assert "sin traducir" not in prompt

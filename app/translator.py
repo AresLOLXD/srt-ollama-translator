@@ -44,12 +44,17 @@ def build_prompt(
     source_lang: str,
     filename: str | None = None,
     context: list[tuple[str, str]] | None = None,
+    glossary: list[str] | None = None,
 ) -> str:
     source_desc = "el idioma detectado automáticamente" if source_lang == "auto" else source_lang
     lines = "\n".join(
         f"[{sub.index}] {sub.content}" for sub in block.subs if sub.content.strip() != ""
     )
     filename_line = f"Nombre del archivo: {filename}. " if filename else ""
+
+    glossary_line = ""
+    if glossary:
+        glossary_line = f"Mantené estos nombres o términos sin traducir: {', '.join(glossary)}. "
 
     instructions = (
         "Traduce al español los siguientes subtítulos de una película o serie. "
@@ -59,6 +64,7 @@ def build_prompt(
         '"[N] texto traducido", preservando el número N tal cual. '
         "Si el texto contiene etiquetas de formato como <i>, </i>, <b>, </b> o saltos de "
         "línea, conservalas tal cual en la traducción. "
+        f"{glossary_line}"
         "No agregues explicaciones, encabezados ni texto adicional fuera de esas líneas."
     )
 
@@ -93,6 +99,7 @@ async def translate_block(
     max_retries: int = 3,
     filename: str | None = None,
     context: list[tuple[str, str]] | None = None,
+    glossary: list[str] | None = None,
 ) -> dict[int, str]:
     expected_indices = {sub.index for sub in block.subs if sub.content.strip() != ""}
     if not expected_indices:
@@ -100,7 +107,9 @@ async def translate_block(
     translations: dict[int, str] = {}
 
     for _attempt in range(max_retries):
-        prompt = build_prompt(block, source_lang, filename=filename, context=context)
+        prompt = build_prompt(
+            block, source_lang, filename=filename, context=context, glossary=glossary
+        )
         response = await client.chat(model, prompt)
         translations.update(parse_translated_response(response))
         if expected_indices.issubset(translations.keys()):
