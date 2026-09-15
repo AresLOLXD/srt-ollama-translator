@@ -1,3 +1,4 @@
+import logging
 import re
 from dataclasses import dataclass
 from typing import Callable
@@ -7,6 +8,8 @@ import srt
 LINE_PATTERN = re.compile(r"^\[(\d+)\]\s*(.*)$")
 
 ENCODING_FALLBACKS = ("utf-8-sig", "cp1252", "latin-1")
+
+logger = logging.getLogger(__name__)
 
 
 def read_srt_text(path: str) -> str:
@@ -91,6 +94,42 @@ def parse_translated_response(response: str) -> dict[int, str]:
     return result
 
 
+GLOSSARY_TEXT_LIMIT = 4000
+
+
+async def extract_glossary(
+    client, model: str, subs: list[srt.Subtitle], filename: str | None = None
+) -> list[str]:
+    text = "\n".join(sub.content for sub in subs if sub.content.strip() != "")
+    if not text:
+        return []
+    text = text[:GLOSSARY_TEXT_LIMIT]
+
+    filename_line = f"Nombre del archivo: {filename}. " if filename else ""
+    prompt = (
+        "A continuación hay texto de subtítulos de una película o serie. "
+        f"{filename_line}"
+        "Listá los nombres propios (personajes, lugares) que aparecen, separados por "
+        "comas, sin explicaciones ni texto adicional.\n\n"
+        f"{text}"
+    )
+
+    try:
+        response = await client.chat(model, prompt)
+    except Exception:
+        logger.warning("No se pudo extraer el glosario para %s", filename, exc_info=True)
+        return []
+
+    seen: set[str] = set()
+    names: list[str] = []
+    for name in re.split(r"[,\n]", response):
+        name = name.strip()
+        if name and name not in seen:
+            seen.add(name)
+            names.append(name)
+    return names
+
+
 async def translate_block(
     client,
     model: str,
@@ -149,6 +188,10 @@ async def translate_srt_file(
     failed_blocks = 0
     context: list[tuple[str, str]] | None = None
 
+    glossary: list[str] = []
+    if blocks:
+        glossary = await extract_glossary(client, model, subs, filename=filename)
+
     for position, block in enumerate(blocks, start=1):
         expected_indices = {sub.index for sub in block.subs if sub.content.strip() != ""}
 
@@ -156,7 +199,8 @@ async def translate_srt_file(
             translations = resume_blocks[position]
         else:
             translations = await translate_block(
-                client, model, block, source_lang, filename=filename, context=context
+                client, model, block, source_lang,
+                filename=filename, context=context, glossary=glossary,
             )
             success = expected_indices.issubset(translations.keys())
             if on_block_result:

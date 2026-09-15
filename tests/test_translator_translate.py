@@ -1,7 +1,15 @@
+import httpx
+import logging
 import pytest
 import srt
 from datetime import timedelta
-from app.translator import SubtitleBlock, read_srt_text, translate_block, translate_srt_file
+from app.translator import (
+    SubtitleBlock,
+    extract_glossary,
+    read_srt_text,
+    translate_block,
+    translate_srt_file,
+)
 
 
 def make_block(count: int) -> SubtitleBlock:
@@ -172,8 +180,8 @@ async def test_translate_srt_file_with_filename_passes_to_client(tmp_path):
         block_size=25,
     )
 
-    assert len(client.prompts) == 1
-    assert "eng.DialogueTest.srt" in client.prompts[0]
+    assert len(client.prompts) == 2
+    assert "eng.DialogueTest.srt" in client.prompts[-1]
 
 
 @pytest.mark.asyncio
@@ -258,7 +266,7 @@ async def test_translate_srt_file_skips_ollama_for_resumed_blocks(tmp_path):
 
     assert total_blocks == 2
     assert failed_blocks == 0
-    assert client.calls == 1
+    assert client.calls == 2
     output_text = output_path.read_text(encoding="utf-8")
     assert "Ya traducido 1" in output_text
     assert "Traducido 26" in output_text
@@ -305,7 +313,7 @@ async def test_translate_srt_file_skips_empty_subtitle_and_still_succeeds(tmp_pa
 
     assert total_blocks == 1
     assert failed_blocks == 0
-    assert client.calls == 1
+    assert client.calls == 2
     output_text = output_path.read_text(encoding="utf-8")
     assert "Hola" in output_text
 
@@ -347,7 +355,7 @@ async def test_translate_srt_file_passes_context_from_previous_block(tmp_path):
         encoding="utf-8",
     )
     output_path = tmp_path / "output.srt"
-    client = FakeClient(["[1] Hola", "[2] Mundo"])
+    client = FakeClient(["", "[1] Hola", "[2] Mundo"])
 
     await translate_srt_file(
         client, "llama3.1", "en", str(input_path), str(output_path), block_size=1
@@ -366,3 +374,55 @@ async def test_translate_block_forwards_glossary_to_every_retry():
     await translate_block(client, "llama3.1", block, "en", glossary=["Jack"])
     assert len(client.prompts) == 2
     assert all("Jack" in p for p in client.prompts)
+
+
+@pytest.mark.asyncio
+async def test_extract_glossary_parses_comma_separated_names():
+    client = FakeClient(["Jack, Sarah, Nueva York"])
+    subs = make_block(1).subs
+    result = await extract_glossary(client, "llama3.1", subs)
+    assert result == ["Jack", "Sarah", "Nueva York"]
+
+
+@pytest.mark.asyncio
+async def test_extract_glossary_returns_empty_list_on_client_error():
+    class FailingClient:
+        async def chat(self, model, prompt):
+            raise httpx.RemoteProtocolError("boom")
+
+    subs = make_block(1).subs
+    result = await extract_glossary(FailingClient(), "llama3.1", subs)
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_extract_glossary_returns_empty_list_for_all_blank_subs():
+    subs = make_block(1).subs
+    subs[0].content = "   "
+    result = await extract_glossary(None, "llama3.1", subs)
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_translate_srt_file_calls_extract_glossary_once_and_uses_it_in_every_block(tmp_path):
+    input_path = tmp_path / "input.srt"
+    lines = []
+    for i in range(1, 51):
+        start = f"00:00:{i:02d},000"
+        end = f"00:00:{i + 1:02d},000"
+        lines.append(f"{i}\n{start} --> {end}\nLine {i}\n")
+    input_path.write_text("\n".join(lines), encoding="utf-8")
+    output_path = tmp_path / "output.srt"
+
+    glossary_response = "Jack, Sarah"
+    block_1_response = "\n".join(f"[{i}] Traducido {i}" for i in range(1, 26))
+    block_2_response = "\n".join(f"[{i}] Traducido {i}" for i in range(26, 51))
+    client = FakeClient([glossary_response, block_1_response, block_2_response])
+
+    await translate_srt_file(
+        client, "llama3.1", "en", str(input_path), str(output_path), block_size=25
+    )
+
+    assert client.calls == 3
+    block_prompts = client.prompts[1:]
+    assert all("Jack" in p and "Sarah" in p for p in block_prompts)

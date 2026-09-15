@@ -262,13 +262,15 @@ async def test_process_job_skips_already_completed_files(tmp_path, db_path):
     db.increment_job_processed_files(db_path, "job-1")
 
     job = db.get_job(db_path, "job-1")
-    client = ScriptedOllamaClient(["[1] Hola\n[2] Mundo"])
+    # First response is for the glossary extraction call that now precedes
+    # block translation; second is the actual block translation for file-2.
+    client = ScriptedOllamaClient(["", "[1] Hola\n[2] Mundo"])
     await process_job(db_path, storage_dir, client, job)
 
     updated_job = db.get_job(db_path, "job-1")
     assert updated_job["status"] == "completed"
     assert updated_job["processed_files"] == 2
-    assert client.calls == 1  # only file-2 was translated
+    assert client.calls == 2  # only file-2 was translated (glossary + block)
 
     files = {f["filename"]: f for f in db.get_job_files(db_path, "job-1")}
     assert files["episode1.srt"]["status"] == "completed"
@@ -295,12 +297,14 @@ async def test_process_job_resumes_mid_file_without_recalling_ollama_for_done_bl
 
     block_2_response = "\n".join(f"[{i}] Traducido {i}" for i in range(26, 51))
     job = db.get_job(db_path, "job-1")
-    client = ScriptedOllamaClient([block_2_response])
+    # First response is for the glossary extraction call (runs once per file
+    # regardless of resume state); second is the actual block 2 translation.
+    client = ScriptedOllamaClient(["", block_2_response])
     await process_job(db_path, storage_dir, client, job)
 
     updated_job = db.get_job(db_path, "job-1")
     assert updated_job["status"] == "completed"
-    assert client.calls == 1  # block 1 was reused, only block 2 hit the client
+    assert client.calls == 2  # block 1 was reused, only glossary + block 2 hit the client
 
     output_path = os.path.join(storage_dir, "job-1", "output", "episode1.srt")
     output_text = open(output_path, encoding="utf-8").read()
@@ -338,7 +342,8 @@ async def test_process_job_stops_cleanly_when_cancel_requested_mid_file(tmp_path
     updated_job = db.get_job(db_path, "job-1")
     assert updated_job["status"] == "stopped"
     assert updated_job["cancel_requested"] == 0
-    assert client.calls == 1  # block 2 was never attempted
+    # glossary extraction + block 1; block 2 was never attempted
+    assert client.calls == 2
 
     files = db.get_job_files(db_path, "job-1")
     assert files[0]["status"] == "processing"  # left mid-file, resumable later
@@ -384,7 +389,9 @@ async def test_process_job_auto_retries_mid_file_exception_without_recalling_cli
 
         async def chat(self, model: str, prompt: str) -> str:
             self.calls += 1
-            if self.calls == 1:
+            # Call 1 is the glossary extraction, call 2 is the real block 1
+            # translation; both succeed. Block 2 (call 3) fails.
+            if self.calls <= 2:
                 return "\n".join(f"[{i}] Traducido {i}" for i in range(1, 26))
             raise httpx.RemoteProtocolError(
                 "Server disconnected without sending a response."
@@ -407,7 +414,11 @@ async def test_process_job_auto_retries_mid_file_exception_without_recalling_cli
 
         async def chat(self, model: str, prompt: str) -> str:
             self.calls += 1
-            if "Line 1\n" in prompt or "[1] " in prompt:
+            # Note: the glossary extraction prompt legitimately includes raw
+            # subtitle text for the whole file (including "Line 1"), so only
+            # the block-translation prompt format ("[1] ...") indicates block
+            # 1 being re-sent for translation.
+            if "[1] " in prompt:
                 raise AssertionError("block 1 should not be re-sent to Ollama")
             return "\n".join(f"[{i}] Traducido {i}" for i in range(26, 51))
 
@@ -417,7 +428,7 @@ async def test_process_job_auto_retries_mid_file_exception_without_recalling_cli
 
     updated_job = db.get_job(db_path, "job-1")
     assert updated_job["status"] == "completed"
-    assert second_client.calls == 1
+    assert second_client.calls == 2  # glossary extraction + block 2 translation
 
 
 @pytest.mark.asyncio
