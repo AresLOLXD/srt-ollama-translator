@@ -308,3 +308,52 @@ async def test_translate_srt_file_skips_empty_subtitle_and_still_succeeds(tmp_pa
     assert client.calls == 1
     output_text = output_path.read_text(encoding="utf-8")
     assert "Hola" in output_text
+
+
+@pytest.mark.asyncio
+async def test_translate_block_forwards_context_to_every_retry():
+    client = FakeClient(["not matching", "[1] Hola\n[2] Mundo"])
+    block = make_block(2)
+    await translate_block(client, "llama3.1", block, "en", context=[("Previo", "Previous")])
+    assert len(client.prompts) == 2
+    assert all("Previo" in p for p in client.prompts)
+
+
+def test_build_context_picks_last_three_successful_pairs():
+    from app.translator import _build_context
+
+    block = make_block(5)
+    translations = {1: "Uno", 2: "Dos", 3: "Tres", 4: "Cuatro", 5: "Cinco"}
+    result = _build_context(block, translations)
+    assert result == [("Line 3", "Tres"), ("Line 4", "Cuatro"), ("Line 5", "Cinco")]
+
+
+def test_build_context_skips_untranslated_and_empty_subs():
+    from app.translator import _build_context
+
+    block = make_block(3)
+    block.subs[1].content = ""
+    translations = {1: "Uno"}
+    result = _build_context(block, translations)
+    assert result == [("Line 1", "Uno")]
+
+
+@pytest.mark.asyncio
+async def test_translate_srt_file_passes_context_from_previous_block(tmp_path):
+    input_path = tmp_path / "input.srt"
+    input_path.write_text(
+        "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n"
+        "2\n00:00:01,000 --> 00:00:02,000\nWorld\n",
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "output.srt"
+    client = FakeClient(["[1] Hola", "[2] Mundo"])
+
+    await translate_srt_file(
+        client, "llama3.1", "en", str(input_path), str(output_path), block_size=1
+    )
+
+    context_prompts = [p for p in client.prompts if "Contexto de continuidad" in p]
+    assert len(context_prompts) == 1
+    assert "Hello" in context_prompts[0]
+    assert "Hola" in context_prompts[0]

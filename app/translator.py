@@ -39,13 +39,19 @@ def split_into_blocks(subs: list[srt.Subtitle], block_size: int = 25) -> list[Su
     ]
 
 
-def build_prompt(block: SubtitleBlock, source_lang: str, filename: str | None = None) -> str:
+def build_prompt(
+    block: SubtitleBlock,
+    source_lang: str,
+    filename: str | None = None,
+    context: list[tuple[str, str]] | None = None,
+) -> str:
     source_desc = "el idioma detectado automáticamente" if source_lang == "auto" else source_lang
     lines = "\n".join(
         f"[{sub.index}] {sub.content}" for sub in block.subs if sub.content.strip() != ""
     )
     filename_line = f"Nombre del archivo: {filename}. " if filename else ""
-    return (
+
+    instructions = (
         "Traduce al español los siguientes subtítulos de una película o serie. "
         f"{filename_line}"
         f"El idioma de origen es {source_desc}. "
@@ -53,9 +59,21 @@ def build_prompt(block: SubtitleBlock, source_lang: str, filename: str | None = 
         '"[N] texto traducido", preservando el número N tal cual. '
         "Si el texto contiene etiquetas de formato como <i>, </i>, <b>, </b> o saltos de "
         "línea, conservalas tal cual en la traducción. "
-        "No agregues explicaciones, encabezados ni texto adicional fuera de esas líneas.\n\n"
-        f"{lines}"
+        "No agregues explicaciones, encabezados ni texto adicional fuera de esas líneas."
     )
+
+    context_block = ""
+    if context:
+        context_lines = "\n".join(
+            f'"{original}" -> "{translated}"' for original, translated in context
+        )
+        context_block = (
+            "\n\nContexto de continuidad (últimas líneas ya traducidas del bloque anterior, "
+            "solo de referencia para mantener tono/coherencia -- NO las traduzcas de nuevo):\n"
+            f"{context_lines}\n\nAhora traduce los siguientes subtítulos nuevos:"
+        )
+
+    return f"{instructions}{context_block}\n\n{lines}"
 
 
 def parse_translated_response(response: str) -> dict[int, str]:
@@ -74,6 +92,7 @@ async def translate_block(
     source_lang: str,
     max_retries: int = 3,
     filename: str | None = None,
+    context: list[tuple[str, str]] | None = None,
 ) -> dict[int, str]:
     expected_indices = {sub.index for sub in block.subs if sub.content.strip() != ""}
     if not expected_indices:
@@ -81,13 +100,24 @@ async def translate_block(
     translations: dict[int, str] = {}
 
     for _attempt in range(max_retries):
-        prompt = build_prompt(block, source_lang, filename=filename)
+        prompt = build_prompt(block, source_lang, filename=filename, context=context)
         response = await client.chat(model, prompt)
         translations.update(parse_translated_response(response))
         if expected_indices.issubset(translations.keys()):
             break
 
     return {index: text for index, text in translations.items() if index in expected_indices}
+
+
+def _build_context(
+    block: SubtitleBlock, translations: dict[int, str], max_lines: int = 3
+) -> list[tuple[str, str]]:
+    pairs = [
+        (sub.content, translations[sub.index])
+        for sub in block.subs
+        if sub.index in translations and sub.content.strip() != ""
+    ]
+    return pairs[-max_lines:]
 
 
 async def translate_srt_file(
@@ -108,6 +138,7 @@ async def translate_srt_file(
     resume_blocks = resume_blocks or {}
     translated_by_index: dict[int, str] = {}
     failed_blocks = 0
+    context: list[tuple[str, str]] | None = None
 
     for position, block in enumerate(blocks, start=1):
         expected_indices = {sub.index for sub in block.subs if sub.content.strip() != ""}
@@ -115,10 +146,14 @@ async def translate_srt_file(
         if position in resume_blocks:
             translations = resume_blocks[position]
         else:
-            translations = await translate_block(client, model, block, source_lang, filename=filename)
+            translations = await translate_block(
+                client, model, block, source_lang, filename=filename, context=context
+            )
             success = expected_indices.issubset(translations.keys())
             if on_block_result:
                 on_block_result(position, translations, success)
+
+        context = _build_context(block, translations)
 
         if not expected_indices.issubset(translations.keys()):
             failed_blocks += 1

@@ -88,3 +88,18 @@ def test_build_prompt_skips_empty_subtitles():
     prompt = build_prompt(block, source_lang="en")
     assert "[1]" not in prompt
     assert "[2] Line 2" in prompt
+
+
+def test_build_prompt_includes_context_section():
+    block = SubtitleBlock(subs=make_subs(1))
+    prompt = build_prompt(block, source_lang="en", context=[("Hola", "Hi")])
+    assert "Contexto de continuidad" in prompt
+    assert "Hola" in prompt
+    assert "Hi" in prompt
+    assert "NO las traduzcas de nuevo" in prompt
+
+
+def test_build_prompt_without_context_omits_section():
+    block = SubtitleBlock(subs=make_subs(1))
+    prompt = build_prompt(block, source_lang="en")
+    assert "Contexto de continuidad" not in prompt
