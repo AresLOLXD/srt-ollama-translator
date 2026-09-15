@@ -168,6 +168,22 @@ def _build_context(
     return pairs[-max_lines:]
 
 
+def _log_length_warnings(
+    block: SubtitleBlock, translations: dict[int, str], filename: str | None
+) -> None:
+    for sub in block.subs:
+        translated = translations.get(sub.index)
+        if translated is None:
+            continue
+        original = sub.content
+        if original and len(translated) > len(original) * 2:
+            logger.warning(
+                "Traducción sospechosamente larga en %s índice %s: "
+                "original=%r (%d chars), traducción=%r (%d chars)",
+                filename, sub.index, original, len(original), translated, len(translated),
+            )
+
+
 async def translate_srt_file(
     client,
     model: str,
@@ -205,6 +221,7 @@ async def translate_srt_file(
             success = expected_indices.issubset(translations.keys())
             if on_block_result:
                 on_block_result(position, translations, success)
+            _log_length_warnings(block, translations, filename)
 
         context = _build_context(block, translations)
 

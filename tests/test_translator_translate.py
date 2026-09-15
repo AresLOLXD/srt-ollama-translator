@@ -426,3 +426,67 @@ async def test_translate_srt_file_calls_extract_glossary_once_and_uses_it_in_eve
     assert client.calls == 3
     block_prompts = client.prompts[1:]
     assert all("Jack" in p and "Sarah" in p for p in block_prompts)
+
+
+def test_log_length_warnings_flags_translation_more_than_double_original():
+    from app.translator import _log_length_warnings
+    import logging as logging_module
+
+    block = make_block(1)
+    block.subs[0].content = "Hi"
+    translations = {1: "H" * 10}
+
+    logger = logging_module.getLogger("app.translator")
+    records = []
+    handler = logging_module.Handler()
+    handler.emit = lambda record: records.append(record)
+    logger.addHandler(handler)
+    logger.setLevel(logging_module.WARNING)
+    try:
+        _log_length_warnings(block, translations, filename="test.srt")
+    finally:
+        logger.removeHandler(handler)
+
+    assert len(records) == 1
+    assert "sospechosamente larga" in records[0].getMessage()
+
+
+def test_log_length_warnings_ignores_normal_length_translation():
+    from app.translator import _log_length_warnings
+    import logging as logging_module
+
+    block = make_block(1)
+    block.subs[0].content = "Hello there"
+    translations = {1: "Hola"}
+
+    logger = logging_module.getLogger("app.translator")
+    records = []
+    handler = logging_module.Handler()
+    handler.emit = lambda record: records.append(record)
+    logger.addHandler(handler)
+    logger.setLevel(logging_module.WARNING)
+    try:
+        _log_length_warnings(block, translations, filename="test.srt")
+    finally:
+        logger.removeHandler(handler)
+
+    assert records == []
+
+
+@pytest.mark.asyncio
+async def test_translate_srt_file_logs_warning_for_abnormally_long_translation(tmp_path, caplog):
+    input_path = tmp_path / "input.srt"
+    input_path.write_text(
+        "1\n00:00:00,000 --> 00:00:01,000\nHi\n", encoding="utf-8"
+    )
+    output_path = tmp_path / "output.srt"
+    long_translation = "Hola " * 20
+    client = FakeClient(["", f"[1] {long_translation}"])
+
+    with caplog.at_level(logging.WARNING, logger="app.translator"):
+        total_blocks, failed_blocks = await translate_srt_file(
+            client, "llama3.1", "en", str(input_path), str(output_path)
+        )
+
+    assert failed_blocks == 0
+    assert "sospechosamente larga" in caplog.text
