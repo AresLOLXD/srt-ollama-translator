@@ -72,3 +72,10 @@ def test_build_prompt_without_filename_matches_original_behavior():
     assert "[1] Line 1" in prompt
     assert "[2] Line 2" in prompt
     assert "en" in prompt
+
+
+def test_build_prompt_instructs_to_preserve_formatting_tags():
+    block = SubtitleBlock(subs=make_subs(1))
+    prompt = build_prompt(block, source_lang="en")
+    assert "<i>" in prompt
+    assert "conservalas" in prompt.lower() or "consérvalas" in prompt.lower()

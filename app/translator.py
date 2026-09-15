@@ -49,6 +49,8 @@ def build_prompt(block: SubtitleBlock, source_lang: str, filename: str | None = 
         f"El idioma de origen es {source_desc}. "
         "Devuelve EXACTAMENTE una línea por cada subtítulo recibido, en el formato "
         '"[N] texto traducido", preservando el número N tal cual. '
+        "Si el texto contiene etiquetas de formato como <i>, </i>, <b>, </b> o saltos de "
+        "línea, conservalas tal cual en la traducción. "
         "No agregues explicaciones, encabezados ni texto adicional fuera de esas líneas.\n\n"
         f"{lines}"
     )
