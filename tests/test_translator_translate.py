@@ -404,6 +404,54 @@ async def test_extract_glossary_returns_empty_list_for_all_blank_subs():
 
 
 @pytest.mark.asyncio
+async def test_extract_glossary_drops_prose_like_entries():
+    client = FakeClient(
+        ["Los nombres propios que aparecen son: Jack y Sarah., Jack, Sarah"]
+    )
+    subs = make_block(1).subs
+    result = await extract_glossary(client, "llama3.1", subs)
+    assert result == ["Jack", "Sarah"]
+
+
+@pytest.mark.asyncio
+async def test_extract_glossary_caps_at_thirty_entries():
+    names = [f"Name{i}" for i in range(1, 41)]
+    client = FakeClient([", ".join(names)])
+    subs = make_block(1).subs
+    result = await extract_glossary(client, "llama3.1", subs)
+    assert result == names[:30]
+
+
+@pytest.mark.asyncio
+async def test_translate_srt_file_skips_extract_glossary_when_fully_resumed(tmp_path):
+    input_path = tmp_path / "input.srt"
+    lines = []
+    for i in range(1, 26):
+        start = f"00:00:{i:02d},000"
+        end = f"00:00:{i + 1:02d},000"
+        lines.append(f"{i}\n{start} --> {end}\nLine {i}\n")
+    input_path.write_text("\n".join(lines), encoding="utf-8")
+    output_path = tmp_path / "output.srt"
+
+    client = FakeClient(["should never be used"])
+    resume_blocks = {1: {i: f"Ya traducido {i}" for i in range(1, 26)}}
+
+    total_blocks, failed_blocks = await translate_srt_file(
+        client,
+        "llama3.1",
+        "en",
+        str(input_path),
+        str(output_path),
+        resume_blocks=resume_blocks,
+        block_size=25,
+    )
+
+    assert total_blocks == 1
+    assert failed_blocks == 0
+    assert client.calls == 0
+
+
+@pytest.mark.asyncio
 async def test_translate_srt_file_calls_extract_glossary_once_and_uses_it_in_every_block(tmp_path):
     input_path = tmp_path / "input.srt"
     lines = []

@@ -124,9 +124,16 @@ async def extract_glossary(
     names: list[str] = []
     for name in re.split(r"[,\n]", response):
         name = name.strip()
-        if name and name not in seen:
-            seen.add(name)
-            names.append(name)
+        if not name or name in seen:
+            continue
+        if len(name) > 60 or ":" in name or "." in name:
+            continue
+        seen.add(name)
+        names.append(name)
+
+    names = names[:30]
+    if names:
+        logger.info("Glosario extraído para %s: %s", filename, names)
     return names
 
 
@@ -205,7 +212,7 @@ async def translate_srt_file(
     context: list[tuple[str, str]] | None = None
 
     glossary: list[str] = []
-    if blocks:
+    if blocks and any(position not in resume_blocks for position in range(1, len(blocks) + 1)):
         glossary = await extract_glossary(client, model, subs, filename=filename)
 
     for position, block in enumerate(blocks, start=1):
